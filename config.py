@@ -7,6 +7,7 @@ modelo de IA y los datos personales que usan las opciones del menu
 (ciudad para el tiempo, valores a seguir en bolsa, etc.).
 """
 
+import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
@@ -134,14 +135,43 @@ MAX_NOTAS = 100
 # Telegram
 # --------------------------------------------------------------------------
 
-# Conversaciones fijadas: pares (chat_id, nombre que sale en la lista).
-# El chat_id lo da el propio broker: escribe al bot desde el movil y
-# entra en Telegram -> "Ver chats que han escrito al bot"; ahi sale el
-# numero para pegarlo aqui. Los grupos llevan el id en negativo.
-TELEGRAM_CHATS = [
-    # (123456789, "Movil de Daniel"),
-    # (-100123456789, "Familia"),
-]
+# Las conversaciones fijadas NO se ponen aqui: van en api.env, que no
+# esta en git. Dos motivos, y el segundo es el importante:
+#
+#   - los chat_id son datos personales y no pintan nada en un
+#     repositorio publico;
+#   - config.py si esta versionado, asi que editarlo en la Raspberry
+#     dejaba el repo sucio y el "Actualizar Broker" del 286 se plantaba
+#     con "Your local changes would be overwritten by merge".
+#
+# El formato en api.env es una sola linea, con las conversaciones
+# separadas por ; y el nombre detras del id, separado por dos puntos:
+#
+#   TELEGRAM_CHATS=-1001234567890:Los colegas;123456789:Movil de Daniel
+#
+# Los grupos llevan el id en negativo. El id lo da el propio broker:
+# Telegram -> "Ver chats que han escrito al bot".
+
+
+def _leer_chats() -> list:
+    chats = []
+    for trozo in leer_env("TELEGRAM_CHATS").split(";"):
+        trozo = trozo.strip()
+        if not trozo:
+            continue
+        ident, _, nombre = trozo.partition(":")
+        ident = ident.strip()
+        try:
+            chats.append((int(ident), nombre.strip() or ident))
+        except ValueError:
+            # Una entrada mal escrita no deja sin Telegram a las demas;
+            # se avisa por el journal y se sigue.
+            print(f"[config] TELEGRAM_CHATS: no entiendo '{trozo}', lo salto",
+                  file=sys.stderr)
+    return chats
+
+
+TELEGRAM_CHATS = _leer_chats()
 # Cada cuanto se le pregunta a Telegram si hay respuesta, en segundos,
 # mientras estas dentro de una conversacion. Bajarlo mucho no gana
 # nada: el 286 tarda mas en pintar el mensaje que la Pi en pedirlo.

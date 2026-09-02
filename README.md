@@ -115,8 +115,20 @@ Puesta en marcha:
    conversacion, tiene que hablarle alguien primero.
 4. En el 286, `Telegram -> Ver chats que han escrito al bot`: sale el
    `chat_id` de quien te ha escrito.
-5. Copia ese numero en `TELEGRAM_CHATS`, en `config.py`, con el nombre
-   que quieras que salga en la lista. Los grupos llevan el id negativo.
+5. Copia ese numero en `api.env` (no en `config.py`), en una linea
+   `TELEGRAM_CHATS`. Los grupos llevan el id negativo:
+
+```
+TELEGRAM_CHATS=-1001234567890:Los colegas;123456789:Movil de Daniel
+```
+
+Las conversaciones van en `api.env` y no en `config.py` por dos
+motivos: son datos personales que no pintan nada en un repositorio
+publico, y sobre todo porque **`config.py` esta versionado**. Editarlo
+en la Raspberry dejaba el repo sucio y el `git pull` de "Actualizar
+Broker" se plantaba con *Your local changes would be overwritten by
+merge*, que es justo romper el flujo de actualizacion desde el 286.
+Regla general: lo que cambie de una maquina a otra, a `api.env`.
 
 Como funciona por dentro:
 
