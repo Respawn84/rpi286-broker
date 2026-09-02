@@ -23,7 +23,6 @@ Solo usa la libreria estandar (urllib + json): en la Raspberry no hay
 que instalar nada nuevo.
 """
 
-import http.cookiejar
 import json
 import socket
 import sys
@@ -36,29 +35,29 @@ import config
 
 API_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/"
 API_SEARCH = "https://query1.finance.yahoo.com/v1/finance/search"
-# Pedir esto una vez hace que Yahoo suelte sus cookies de sesion. No
-# devuelve nada util (contesta 404), pero sin cookie la API empieza a
-# responder 429 aunque no estes pidiendo casi nada.
-URL_COOKIE = "https://fc.yahoo.com/"
 
-# Yahoo responde 403 o 429 a los clientes que no mandan User-Agent de
-# navegador.
+# OJO: el User-Agent tiene que ser el generico corto. No lo "mejores"
+# poniendo uno realista, que es exactamente lo que lo rompe.
+#
+# Medido desde la Raspberry, misma IP y mismo minuto:
+#
+#   "Mozilla/5.0"                                       -> 200
+#   "Mozilla/5.0 (X11; Linux aarch64) ... Chrome/120"   -> 429
+#   sin User-Agent (el que pone urllib)                 -> 429
+#
+# Y el UA de Chrome seguia dando 429 con cookies de sesion y con
+# Accept-Encoding: gzip, asi que no era ni falta de cookies ni el
+# ritmo. Lo mas probable: un Chrome de verdad manda ademas cabeceras
+# sec-ch-ua y sec-fetch-*, y prometer ser Chrome sin ellas es lo que
+# delata al bot. El generico corto no promete nada y pasa.
 CABECERAS = {
-    "User-Agent": ("Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
-                   "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"),
-    "Accept": "application/json",
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "*/*",
 }
-
-# Un solo opener para todo el modulo, con su tarro de cookies. Asi las
-# once peticiones del cuadro van como las once de un navegador que ya
-# ha estado en la web, en vez de como once desconocidos seguidos.
-_cookies = http.cookiejar.CookieJar()
-_opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_cookies))
-_con_cookies = False
 
 # Precios ya pedidos: simbolo -> (momento, fila). Abrir el menu de
 # cotizaciones no deberia costar once peticiones nuevas si acabas de
-# mirarlo hace un minuto; eso es justo lo que dispara el 429.
+# mirarlo hace un minuto: es la otra forma segura de acabar en un 429.
 _cache = {}
 
 
@@ -70,44 +69,23 @@ class MercadoError(Exception):
 # Acceso a la API
 # --------------------------------------------------------------------------
 
-def _coger_cookies() -> None:
-    """
-    Primera visita, para que Yahoo nos de sus cookies.
-
-    Contesta 404 y da igual: lo que interesa son las cabeceras
-    Set-Cookie, que se quedan en _cookies y viajan en las siguientes
-    peticiones. Si esto falla no se aborta nada, solo se intentara la
-    consulta a pelo.
-    """
-    global _con_cookies
-    _con_cookies = True
-    try:
-        peticion = urllib.request.Request(URL_COOKIE, headers=CABECERAS)
-        _opener.open(peticion, timeout=config.MERCADOS_TIMEOUT).read()
-    except Exception:
-        pass
-
-
 def _pedir(url: str, params: dict) -> dict:
-    if not _con_cookies:
-        _coger_cookies()
-
     peticion = urllib.request.Request(
         url + "?" + urllib.parse.urlencode(params), headers=CABECERAS)
 
     for intento in (1, 2):
         try:
-            with _opener.open(peticion, timeout=config.MERCADOS_TIMEOUT) as r:
+            with urllib.request.urlopen(peticion,
+                                        timeout=config.MERCADOS_TIMEOUT) as r:
                 return json.loads(r.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             if e.code == 429 and intento == 1:
-                # Nos han frenado. Se reintenta una vez, renovando las
-                # cookies y esperando lo que digan (o un par de
-                # segundos): insistir mas seria empeorarlo.
+                # Nos han frenado por ritmo. Se reintenta una vez,
+                # esperando lo que digan (o unos segundos); insistir mas
+                # seria empeorarlo.
                 espera = e.headers.get("Retry-After")
                 time.sleep(min(int(espera), 10) if (espera or "").isdigit()
                            else config.MERCADOS_REINTENTO)
-                _coger_cookies()
                 continue
             raise MercadoError(f"el servidor responde {e.code} {e.reason}")
         except urllib.error.URLError as e:
