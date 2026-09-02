@@ -13,10 +13,49 @@ from pathlib import Path
 BASE_DIR = Path(__file__).parent
 
 # --------------------------------------------------------------------------
+# Lo que cambia de una maquina a otra: api.env
+# --------------------------------------------------------------------------
+#
+# Regla del proyecto: lo que dependa de la maquina o sea personal va en
+# api.env, que NO esta en git. config.py si esta versionado, asi que
+# editarlo en la Raspberry deja el repo sucio y el "Actualizar Broker"
+# del 286 se planta con "Your local changes would be overwritten by
+# merge", que es justo romper el flujo que ese menu venia a resolver.
+#
+# Lo de aqui abajo son los valores POR DEFECTO. Para cambiar uno en una
+# maquina concreta, se pone la clave en su api.env y listo.
+
+ENV_FILE = BASE_DIR / "api.env"
+
+
+def leer_env(clave: str, defecto: str = "") -> str:
+    """
+    Lee una clave de api.env (formato CLAVE=valor, # para comentarios).
+
+    ia.py tiene su propio lector porque sin la clave de Claude no hay
+    broker que valga y sale con error. Este es el lector blando, para
+    lo opcional: si no esta la clave, se devuelve el valor por defecto.
+    """
+    if not ENV_FILE.exists():
+        return defecto
+
+    for linea in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith("#") or "=" not in linea:
+            continue
+        nombre, _, valor = linea.partition("=")
+        if nombre.strip() == clave:
+            return valor.strip().strip('"').strip("'")
+    return defecto
+
+
+# --------------------------------------------------------------------------
 # Enlace serie con el 286
 # --------------------------------------------------------------------------
 
-PORT = "/dev/ttyUSB0"
+# El conversor USB-serie no siempre cae en el mismo /dev/, y en otra
+# maquina puede ser ttyUSB1 o un /dev/tty.usbserial del Mac.
+PORT = leer_env("PORT", "/dev/ttyUSB0")
 BAUDRATE = 9600
 # Valores tal cual los acepta serial.Serial (8N1). Se ponen literales
 # para que este fichero no necesite importar pyserial: asi el simulador
@@ -47,39 +86,21 @@ LINE_DELAY = 0.015
 # API de Claude
 # --------------------------------------------------------------------------
 
-ENV_FILE = BASE_DIR / "api.env"
+# La clave (ANTHROPIC_API_KEY) tambien esta en ENV_FILE, arriba; la
+# lee ia.py con su propio lector.
 MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 1200
-
-
-def leer_env(clave: str, defecto: str = "") -> str:
-    """
-    Lee una clave de api.env (formato CLAVE=valor, # para comentarios).
-
-    ia.py tiene su propio lector porque sin la clave de Claude no hay
-    broker que valga y sale con error. Este es el lector blando, para
-    lo opcional: si no esta la clave, se devuelve el valor por defecto
-    y la seccion que la necesite ya avisara.
-    """
-    if not ENV_FILE.exists():
-        return defecto
-
-    for linea in ENV_FILE.read_text(encoding="utf-8").splitlines():
-        linea = linea.strip()
-        if not linea or linea.startswith("#") or "=" not in linea:
-            continue
-        nombre, _, valor = linea.partition("=")
-        if nombre.strip() == clave:
-            return valor.strip().strip('"').strip("'")
-    return defecto
 
 # --------------------------------------------------------------------------
 # Datos personales de las secciones del menu
 # --------------------------------------------------------------------------
 
-# Opcion 3 - Prevision del tiempo
-CIUDAD = "Madrid"
-PAIS = "Espana"
+# Opcion 3 - Prevision del tiempo. En api.env por si el 286 cambia de
+# casa. PAIS va con CIUDAD porque se usan juntos ("Madrid, Espana") y
+# separarlos solo serviria para pedir el tiempo de la ciudad
+# equivocada.
+CIUDAD = leer_env("CIUDAD", "Madrid")
+PAIS = leer_env("PAIS", "Espana")
 
 # Opcion 4 - Cotizaciones. Pares (simbolo de Yahoo, nombre que sale en
 # la tabla del 286). El simbolo es el que usa finance.yahoo.com: los
