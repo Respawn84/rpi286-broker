@@ -80,3 +80,15 @@ NUM_NOTICIAS = 6
 
 NOTAS_FILE = BASE_DIR / "notas.txt"
 MAX_NOTAS = 100
+
+# --------------------------------------------------------------------------
+# Actualizacion desde GitHub (menu Configuracion)
+# --------------------------------------------------------------------------
+
+# El repositorio es la propia carpeta del broker: se instala haciendo
+# git clone, asi que el .git ya esta al lado de estos ficheros.
+REPO_DIR = BASE_DIR
+# Tope para cualquier git. Un pull contra GitHub con la Pi en wifi
+# flojo puede tardar, pero si pasa de aqui es que algo esta colgado y
+# preferimos volver al menu antes que dejar mudo al 286.
+GIT_TIMEOUT = 120

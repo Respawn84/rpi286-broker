@@ -59,13 +59,17 @@ def init() -> None:
 
 def _texto(response) -> str:
     """
-    Junta los bloques de texto de la respuesta. Con la tool de busqueda
-    web del servidor, la respuesta trae ademas bloques de tipo
-    server_tool_use / web_search_tool_result que no llevan texto legible.
+    Devuelve SOLO el ultimo bloque de texto de la respuesta.
+
+    Con la tool de busqueda web, Claude suele soltar un bloque de texto
+    ANTES de llamar a la tool ("Voy a buscar X..."), y otro DESPUES con
+    la respuesta final ya con los datos. El primero es narracion del
+    proceso, no la respuesta; unirlos con join() los pegaba sin
+    separacion. Nos quedamos solo con el ultimo, que es el que llega
+    tras el web_search_tool_result.
     """
-    return "".join(
-        block.text for block in response.content if block.type == "text"
-    ).strip()
+    bloques = [b.text for b in response.content if b.type == "text"]
+    return bloques[-1].strip() if bloques else "(sin respuesta de texto)"
 
 
 def _create(system: str, messages, web: bool, max_tokens: int):

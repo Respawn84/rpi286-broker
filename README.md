@@ -23,6 +23,7 @@ tal cual por si hace falta volver atras.
 | `ia.py`        | Cliente de la API de Claude (consultas sueltas y chat)     |
 | `prompts.py`   | Prompts de cada seccion del menu                           |
 | `apps.py`      | Aplicaciones locales de la Raspberry                       |
+| `actualizar.py`| git pull desde el menu Configuracion (opcion 7)            |
 | `config.py`    | Toda la configuracion: puerto, ciudad, valores, modelo     |
 | `simulador.py` | Prueba el menu en la consola, sin 286 ni cable             |
 | `broker_v1.py` | Version anterior (eco directo a la API), intacta           |
@@ -50,12 +51,42 @@ python3 simulador.py
 4. Cotizaciones                 lista de config.py o valor suelto
 5. Aplicaciones                 submenu, todo local en la Pi
 6. Chat con Claude              el comportamiento del broker v1
+7. Configuracion                actualizar el broker desde GitHub
 0. Apagar la sesion
 ```
 
 Aplicaciones (opcion 5): reloj para poner en hora el 286, calculadora,
 conversor de unidades, bloc de notas guardado en la Pi, estado de la
 Raspberry, adivina el numero y efemerides del dia.
+
+## Configuracion -> Actualizar Broker (opcion 7)
+
+Para no tener que abrir un SSH cada vez que se toca el codigo. El flujo
+es: `git push` desde el PC o el Mac, y en el 286 **Configuracion ->
+Actualizar Broker**. La Raspberry hace el `git pull` sola y, si ha
+entrado codigo nuevo, ofrece reiniciarse para aplicarlo.
+
+Detalles que conviene saber:
+
+- Se hace `git pull --ff-only` y, antes, se comprueba que no haya
+  cambios locales. Si los hay, el broker se planta y avisa: un merge a
+  ciegas no se puede resolver desde una pantalla de 286.
+- El reinicio **no usa `sudo systemctl restart`**: el servicio corre con
+  `NoNewPrivileges=true` y no puede escalar privilegios. En vez de eso
+  el proceso sale con codigo 0 y `Restart=always` hace que systemd lo
+  vuelva a levantar en `RestartSec` (5 s) ya con el codigo nuevo. Desde
+  el 286 se ve como unos segundos de silencio; luego un ENTER repinta el
+  menu.
+- Si el broker se ha arrancado a mano (sin systemd) no hay quien lo
+  relance, asi que en ese caso avisa y no se sale.
+- La opcion 2 del submenu ensena rama, commit y fecha del codigo que
+  esta corriendo, util para comprobar que la actualizacion ha entrado.
+- La carpeta del repositorio es la del propio broker (`config.REPO_DIR`,
+  que es donde estan estos ficheros); en la Raspberry de casa,
+  `/home/daniel/286/rpi286-broker`.
+
+Como el servicio lleva `ProtectHome=read-only` con `ReadWritePaths` a su
+propia carpeta, el `git pull` puede escribir ahi y en ningun otro sitio.
 
 Convenios de navegacion, iguales en todo el arbol:
 

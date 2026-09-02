@@ -28,6 +28,7 @@ Uso:
 import sys
 import time
 
+import actualizar
 import apps
 import config
 import ia
@@ -41,6 +42,7 @@ MENU_PRINCIPAL = [
     ("4", "Cotizaciones - Acciones y Cryptos"),
     ("5", "Aplicaciones"),
     ("6", "Chat con Claude"),
+    ("7", "Configuracion"),
     ("0", "Apagar la sesion"),
 ]
 
@@ -189,6 +191,90 @@ def seccion_chat(term):
 
 
 # --------------------------------------------------------------------------
+# Configuracion / mantenimiento
+# --------------------------------------------------------------------------
+
+def _mostrar_version(term):
+    datos = actualizar.version()
+    term.titulo("Version instalada")
+    term.print(f"Rama:   {datos['rama']}")
+    term.print(f"Commit: {datos['commit']}  ({datos['fecha']})")
+    if datos["asunto"]:
+        term.print_wrapped(f"Ultimo: {datos['asunto']}")
+    if datos["sucio"]:
+        term.print("")
+        term.print("AVISO: hay cambios locales sin guardar en la Raspberry.")
+    term.print(f"Carpeta: {config.REPO_DIR}")
+
+
+def seccion_actualizar(term):
+    """
+    git pull en la Raspberry y, si ha entrado codigo nuevo, reinicio
+    para que el broker corra ya con el.
+    """
+    term.aviso("Buscando actualizaciones en GitHub, espera unos segundos...")
+    try:
+        hubo_cambios, texto = actualizar.pull()
+    except actualizar.GitError as e:
+        print(f"[broker v2] ERROR actualizando: {e}", file=sys.stderr)
+        term.titulo("Actualizar broker")
+        term.print("No he podido actualizar:")
+        term.page(str(e))
+        term.pausa()
+        return
+
+    print(f"[broker v2] git pull: {'cambios' if hubo_cambios else 'sin cambios'}")
+    term.titulo("Actualizar broker")
+    term.page(texto)
+
+    if not hubo_cambios:
+        term.pausa()
+        return
+
+    if not actualizar.bajo_systemd():
+        # Arrancado a mano: si saliera aqui, nadie lo volveria a
+        # levantar y el 286 se quedaria sin broker.
+        term.print("")
+        term.print("El broker no lo lleva systemd: reinicialo tu para")
+        term.print("que el codigo nuevo entre en marcha.")
+        term.pausa()
+        return
+
+    sel = term.menu("REINICIAR EL BROKER", [
+        ("1", "Reiniciar ahora y aplicar la actualizacion"),
+        ("0", "Luego (sigo con el codigo viejo)"),
+    ])
+    if sel == "0":
+        term.print("Vale. La actualizacion entrara en el proximo reinicio.")
+        term.pausa()
+        return
+
+    term.print("")
+    term.print("Reiniciando el broker. Espera unos segundos y pulsa")
+    term.print("ENTER para que vuelva a salir el menu.")
+    print("[broker v2] Saliendo para que systemd relance con el codigo nuevo.")
+    # Restart=always en la unidad: salir es la forma de reiniciarse
+    # sin necesitar permisos de root desde dentro del servicio.
+    raise SystemExit(0)
+
+
+def seccion_configuracion(term):
+    while True:
+        sel = term.menu("CONFIGURACION", [
+            ("1", "Actualizar Broker (git pull)"),
+            ("2", "Ver version instalada"),
+            ("0", "Volver al menu principal"),
+        ])
+        if sel == "0":
+            return
+        if sel == "1":
+            seccion_actualizar(term)
+        elif sel == "2":
+            _mostrar_version(term)
+            term.pausa()
+
+
+# --------------------------------------------------------------------------
 # Bucle principal
 # --------------------------------------------------------------------------
 
@@ -199,6 +285,7 @@ SECCIONES = {
     "4": seccion_cotizaciones,
     "5": seccion_aplicaciones,
     "6": seccion_chat,
+    "7": seccion_configuracion,
 }
 
 
