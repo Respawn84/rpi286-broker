@@ -107,6 +107,17 @@ DIVISAS = [
 # Tope por peticion a la API de mercados. Son once peticiones seguidas
 # para el cuadro entero, asi que conviene que ninguna se eternice.
 MERCADOS_TIMEOUT = 12
+# Yahoo corta con un 429 (Too Many Requests) a quien le pide mucho de
+# golpe, y el cuadro entero son once peticiones. Estos tres numeros
+# estan para no llegar a eso:
+#   - CACHE: segundos que vale un precio ya pedido. Reabrir el menu de
+#     cotizaciones dentro de este rato no gasta ni una peticion.
+#   - PAUSA: respiro entre valor y valor del cuadro.
+#   - REINTENTO: espera antes del unico reintento tras un 429, cuando
+#     Yahoo no dice el suyo en la cabecera Retry-After.
+MERCADOS_CACHE = 180
+MERCADOS_PAUSA = 0.4
+MERCADOS_REINTENTO = 3
 
 # Opcion 1 y 2 - Noticias
 PAIS_NOTICIAS = "Espana"

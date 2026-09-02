@@ -122,6 +122,7 @@ def _cuadro_cotizaciones(term):
     term.aviso("Consultando mercados, espera unos segundos...")
 
     lineas = []
+    filas = []
     for titulo, valores in (("Acciones e indices", config.ACCIONES),
                             ("Criptomonedas", config.CRYPTOS),
                             ("Divisas", config.DIVISAS)):
@@ -129,12 +130,22 @@ def _cuadro_cotizaciones(term):
             continue
         if lineas:
             lineas.append("")
-        lineas.extend(mercados.cuadro(titulo, valores))
+        bloque, resultados = mercados.cuadro(titulo, valores)
+        lineas.extend(bloque)
+        filas.extend(resultados)
 
     term.titulo(f"Cotizaciones {time.strftime('%d/%m/%Y')}")
     term.page("\n".join(lineas))
     term.print("")
-    term.print_wrapped(mercados.pie())
+
+    if filas and all(fila.get("error") for fila in filas):
+        # Si falla UN valor es cosa de ese valor, pero si fallan todos
+        # es la Raspberry o la API, y el motivo hay que verlo en el 286
+        # sin tener que ir a mirar el journal por SSH.
+        term.print_wrapped("No ha salido ni un dato. Motivo del primero: "
+                           + mercados.primer_error(filas))
+    else:
+        term.print_wrapped(mercados.pie())
     term.pausa()
 
 
