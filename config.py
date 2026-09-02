@@ -50,6 +50,28 @@ ENV_FILE = BASE_DIR / "api.env"
 MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 1200
 
+
+def leer_env(clave: str, defecto: str = "") -> str:
+    """
+    Lee una clave de api.env (formato CLAVE=valor, # para comentarios).
+
+    ia.py tiene su propio lector porque sin la clave de Claude no hay
+    broker que valga y sale con error. Este es el lector blando, para
+    lo opcional: si no esta la clave, se devuelve el valor por defecto
+    y la seccion que la necesite ya avisara.
+    """
+    if not ENV_FILE.exists():
+        return defecto
+
+    for linea in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith("#") or "=" not in linea:
+            continue
+        nombre, _, valor = linea.partition("=")
+        if nombre.strip() == clave:
+            return valor.strip().strip('"').strip("'")
+    return defecto
+
 # --------------------------------------------------------------------------
 # Datos personales de las secciones del menu
 # --------------------------------------------------------------------------
@@ -96,6 +118,26 @@ NUM_NOTICIAS = 6
 
 NOTAS_FILE = BASE_DIR / "notas.txt"
 MAX_NOTAS = 100
+
+# --------------------------------------------------------------------------
+# Telegram
+# --------------------------------------------------------------------------
+
+# Conversaciones fijadas: pares (chat_id, nombre que sale en la lista).
+# El chat_id lo da el propio broker: escribe al bot desde el movil y
+# entra en Telegram -> "Ver chats que han escrito al bot"; ahi sale el
+# numero para pegarlo aqui. Los grupos llevan el id en negativo.
+TELEGRAM_CHATS = [
+    # (123456789, "Movil de Daniel"),
+    # (-100123456789, "Familia"),
+]
+# Cada cuanto se le pregunta a Telegram si hay respuesta, en segundos,
+# mientras estas dentro de una conversacion. Bajarlo mucho no gana
+# nada: el 286 tarda mas en pintar el mensaje que la Pi en pedirlo.
+TELEGRAM_POLL = 5
+TELEGRAM_TIMEOUT = 15
+# Por donde iba la lectura de mensajes. Lo escribe el broker solo.
+TELEGRAM_OFFSET_FILE = BASE_DIR / "telegram_offset.txt"
 
 # --------------------------------------------------------------------------
 # Actualizacion desde GitHub (menu Configuracion)

@@ -34,6 +34,7 @@ import config
 import ia
 import mercados
 import prompts
+import telegrama
 from terminal import Terminal
 
 MENU_PRINCIPAL = [
@@ -43,7 +44,8 @@ MENU_PRINCIPAL = [
     ("4", "Cotizaciones - Acciones y Cryptos"),
     ("5", "Aplicaciones"),
     ("6", "Chat con Claude"),
-    ("7", "Configuracion"),
+    ("7", "Telegram"),
+    ("8", "Configuracion"),
     ("0", "Apagar la sesion"),
 ]
 
@@ -254,6 +256,155 @@ def seccion_chat(term):
 
 
 # --------------------------------------------------------------------------
+# Telegram
+# --------------------------------------------------------------------------
+#
+# Los mensajes SOLO se ensenan mientras estas dentro de esta seccion.
+# No hay hilo de fondo ni avisos en el menu principal: a 9600 baudios
+# sin FIFO, escribir en el 286 desde dos sitios a la vez es basura en
+# pantalla asegurada. Para complicarlo siempre hay tiempo.
+
+def _pintar_mensaje(term, mensaje) -> None:
+    term.print_wrapped(f"[{mensaje['hora']}] {mensaje['autor']}: {mensaje['texto']}")
+
+
+def _conversacion(term, chat_id, nombre) -> None:
+    """
+    Un chat, en modo maquina de escribir: lo que escribas se envia y
+    cada TELEGRAM_POLL segundos se mira si han contestado.
+
+    El truco para hacer las dos cosas a la vez sin hilos esta en
+    Terminal.read_line(), que devuelve None cuando vence el timeout del
+    puerto (1 segundo) sin que el 286 haya dicho nada. Ese None es el
+    hueco que aprovechamos para preguntarle a Telegram.
+    """
+    term.titulo(f"Telegram - {nombre}")
+    term.print("Escribe y pulsa ENTER para enviar. 0 para volver.")
+    term.print("")
+
+    for mensaje in telegrama.recoger(chat_id):
+        _pintar_mensaje(term, mensaje)
+
+    estado = {"ultimo": time.time(), "fallando": False}
+
+    def refrescar():
+        estado["ultimo"] = time.time()
+        try:
+            telegrama.sondear()
+        except telegrama.TelegramError as e:
+            # Solo se avisa del primer fallo: si se ha caido la red, no
+            # vamos a repetirlo cada cinco segundos.
+            if not estado["fallando"]:
+                estado["fallando"] = True
+                term.print(f"(sin conexion con Telegram: {e})")
+            return
+        if estado["fallando"]:
+            estado["fallando"] = False
+            term.print("(conexion con Telegram recuperada)")
+
+        for mensaje in telegrama.recoger(chat_id):
+            _pintar_mensaje(term, mensaje)
+
+        # Lo de otros chats no se cuela en medio de esta conversacion:
+        # se queda en el buzon y solo se avisa de que esta ahi.
+        for otro, cuantos in telegrama.pendientes().items():
+            if otro != chat_id:
+                term.print(f"({cuantos} mensaje(s) nuevo(s) en "
+                           f"{telegrama.nombre_de(otro)})")
+
+    while True:
+        linea = term.read_line()
+
+        if linea is None:                    # el 286 calla: toca mirar Telegram
+            if time.time() - estado["ultimo"] >= config.TELEGRAM_POLL:
+                refrescar()
+            continue
+
+        if linea == "":                      # ENTER a secas: mirar ahora mismo
+            refrescar()
+            continue
+        if linea == "0" or linea.upper() in ("MENU", "SALIR", "FIN"):
+            return
+
+        try:
+            telegrama.enviar(chat_id, linea)
+        except telegrama.TelegramError as e:
+            term.print(f"NO ENVIADO: {e}")
+            continue
+
+        print(f"[broker v2] Telegram -> {nombre}: {linea!r}")
+        term.print(f"[{time.strftime('%H:%M')}] enviado")
+        # Tras enviar es cuando mas probable es que contesten, asi que
+        # el siguiente sondeo se adelanta en vez de esperar el ciclo.
+        estado["ultimo"] = time.time() - config.TELEGRAM_POLL + 2
+
+
+def _chats_descubiertos(term) -> None:
+    """
+    Quien le ha escrito al bot, con su chat_id.
+
+    Es la forma de rellenar TELEGRAM_CHATS sin buscarse la vida: le
+    escribes al bot desde el movil, entras aqui y copias el numero.
+    """
+    term.aviso("Preguntando a Telegram...")
+    try:
+        telegrama.sondear()
+    except telegrama.TelegramError as e:
+        term.print(f"No he podido preguntar: {e}")
+        term.pausa()
+        return
+
+    conocidos = telegrama.conocidos()
+    term.titulo("Chats que han escrito al bot")
+    if not conocidos:
+        term.print("Nadie ha escrito al bot todavia (o ya se leyo antes).")
+        term.print("Mandale un mensaje desde el movil y vuelve a entrar.")
+    else:
+        for chat_id, nombre in conocidos.items():
+            term.print(f"{chat_id}   {nombre}")
+        term.print("")
+        term.print_wrapped("Copia el numero en TELEGRAM_CHATS, dentro de "
+                           "config.py, para que salga en la lista de arriba.")
+    term.pausa()
+
+
+def seccion_telegram(term):
+    if not telegrama.disponible():
+        term.titulo("Telegram")
+        term.print("No hay TELEGRAM_TOKEN en api.env.")
+        term.print("")
+        term.print_wrapped("Habla con @BotFather en Telegram, crea un bot "
+                           "con /newbot y pega el token que te da en api.env, "
+                           "en una linea TELEGRAM_TOKEN=...")
+        term.pausa()
+        return
+
+    # Lo que haya llegado mientras estabas en otra parte del menu no se
+    # suelta de golpe: esta seccion solo ensena lo que pasa mientras
+    # esta abierta.
+    telegrama.cargar_offset()
+    telegrama.descartar_atrasados()
+
+    while True:
+        opciones = [(str(i), nombre)
+                    for i, (_, nombre) in enumerate(config.TELEGRAM_CHATS, 1)]
+        opciones.append(("L", "Ver chats que han escrito al bot"))
+        opciones.append(("0", "Volver al menu principal"))
+
+        pie = None if config.TELEGRAM_CHATS else "Aun no hay conversaciones fijadas"
+        sel = term.menu("TELEGRAM", opciones, pie=pie)
+
+        if sel == "0":
+            return
+        if sel == "L":
+            _chats_descubiertos(term)
+            continue
+
+        chat_id, nombre = config.TELEGRAM_CHATS[int(sel) - 1]
+        _conversacion(term, chat_id, nombre)
+
+
+# --------------------------------------------------------------------------
 # Configuracion / mantenimiento
 # --------------------------------------------------------------------------
 
@@ -348,7 +499,8 @@ SECCIONES = {
     "4": seccion_cotizaciones,
     "5": seccion_aplicaciones,
     "6": seccion_chat,
-    "7": seccion_configuracion,
+    "7": seccion_telegram,
+    "8": seccion_configuracion,
 }
 
 

@@ -23,8 +23,10 @@ tal cual por si hace falta volver atras.
 | `ia.py`        | Cliente de la API de Claude (consultas sueltas y chat)     |
 | `prompts.py`   | Prompts de cada seccion del menu                           |
 | `mercados.py` | Cotizaciones via API publica (Yahoo Finance)                |
+| `telegrama.py` | Cliente de Telegram (Bot API), opcion 7                    |
+| `emojis.py`    | Tabla de emoji -> CP437, para mantener a mano              |
 | `apps.py`      | Aplicaciones locales de la Raspberry                       |
-| `actualizar.py`| git pull desde el menu Configuracion (opcion 7)            |
+| `actualizar.py`| git pull desde el menu Configuracion (opcion 8)            |
 | `config.py`    | Toda la configuracion: puerto, ciudad, valores, modelo     |
 | `simulador.py` | Prueba el menu en la consola, sin 286 ni cable             |
 | `broker_v1.py` | Version anterior (eco directo a la API), intacta           |
@@ -52,7 +54,8 @@ python3 simulador.py
 4. Cotizaciones                 precios via API, sin pasar por la IA
 5. Aplicaciones                 submenu, todo local en la Pi
 6. Chat con Claude              el comportamiento del broker v1
-7. Configuracion                actualizar el broker desde GitHub
+7. Telegram                     enviar y recibir, via bot
+8. Configuracion                actualizar el broker desde GitHub
 0. Apagar la sesion
 ```
 
@@ -96,7 +99,54 @@ El submenu tiene tres opciones:
 3. **Que ha pasado hoy en los mercados**: esta si es Claude, pero ya no
    le pedimos numeros, solo el porque del movimiento.
 
-## Configuracion -> Actualizar Broker (opcion 7)
+## Telegram (opcion 7)
+
+Enviar y recibir mensajes de Telegram desde MS-DOS, con un bot de la
+Bot API. Es HTTPS y JSON, igual que las cotizaciones, asi que **no hay
+que instalar nada** en la Raspberry.
+
+Puesta en marcha:
+
+1. En Telegram, habla con `@BotFather` y manda `/newbot`. Te da un
+   token.
+2. Pega el token en `api.env`: `TELEGRAM_TOKEN=1234567890:AA...`
+   (`api.env` esta en `.gitignore`, no se sube).
+3. Escribele algo al bot desde el movil. Un bot no puede empezar una
+   conversacion, tiene que hablarle alguien primero.
+4. En el 286, `Telegram -> Ver chats que han escrito al bot`: sale el
+   `chat_id` de quien te ha escrito.
+5. Copia ese numero en `TELEGRAM_CHATS`, en `config.py`, con el nombre
+   que quieras que salga en la lista. Los grupos llevan el id negativo.
+
+Como funciona por dentro:
+
+- **Solo se ven mensajes mientras la seccion esta abierta.** No hay
+  hilo de fondo ni avisos en el menu principal: a 9600 baudios sin FIFO
+  del lado del 286, escribir en la pantalla desde dos sitios a la vez
+  es basura asegurada. Al entrar se descarta lo atrasado.
+- Dentro de una conversacion, lo que escribas se envia con ENTER y cada
+  `TELEGRAM_POLL` segundos (5 por defecto) se mira si han contestado.
+  El truco para hacer las dos cosas sin hilos es que
+  `Terminal.read_line()` devuelve `None` cuando vence el timeout del
+  puerto sin que el 286 haya dicho nada: ese hueco es el que se
+  aprovecha para preguntarle a Telegram.
+- Lo que llegue de otro chat mientras estas dentro de uno no se cuela
+  en medio: se queda en el buzon y avisa con una linea, y se ensena
+  entero cuando entras en esa conversacion.
+- El `update_id` por el que va la lectura se guarda en
+  `telegram_offset.txt` para que un reinicio del broker no vuelva a
+  soltar todo lo antiguo.
+- Fotos, audios y stickers no se pueden ver, pero se anuncian
+  (`[una foto] pie de foto`).
+
+Los emoji no existen en CP437, asi que se traducen en
+[emojis.py](emojis.py), que esta aparte justo para que sea comodo
+mantenerlo. De momento estan los cinco mas evidentes y las comillas y
+rayas raras que meten los moviles; para anadir otro basta con una linea
+mas en `TABLA`. Los acentos y la ene NO se tocan: CP437 los tiene y se
+ven bien en el 286.
+
+## Configuracion -> Actualizar Broker (opcion 8)
 
 Para no tener que abrir un SSH cada vez que se toca el codigo. El flujo
 es: `git push` desde el PC o el Mac, y en el 286 **Configuracion ->
