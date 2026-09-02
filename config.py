@@ -58,17 +58,33 @@ MAX_TOKENS = 1200
 CIUDAD = "Madrid"
 PAIS = "Espana"
 
-# Opcion 4 - Cotizaciones. Nombres tal cual se los pasamos al buscador.
+# Opcion 4 - Cotizaciones. Pares (simbolo de Yahoo, nombre que sale en
+# la tabla del 286). El simbolo es el que usa finance.yahoo.com: los
+# indices llevan ^ delante (^IBEX, ^GSPC), las acciones de Madrid
+# acaban en .MC, la cripto se pide contra una moneda (BTC-EUR) y las
+# divisas son un par con =X detras (EURUSD=X). Si no sabes el simbolo
+# de un valor, buscalo desde el 286 con "Consultar un valor suelto":
+# el broker lo resuelve por nombre y te lo ensena.
 ACCIONES = [
-    "IBEX 35",
-    "Banco Santander (SAN.MC)",
-    "Inditex (ITX.MC)",
-    "Telefonica (TEF.MC)",
-    "Apple (AAPL)",
-    "Nvidia (NVDA)",
+    ("^IBEX", "IBEX 35"),
+    ("SAN.MC", "Banco Santander"),
+    ("ITX.MC", "Inditex"),
+    ("TEF.MC", "Telefonica"),
+    ("AAPL", "Apple"),
+    ("NVDA", "Nvidia"),
 ]
-CRYPTOS = ["Bitcoin (BTC)", "Ethereum (ETH)", "Solana (SOL)"]
-DIVISAS = ["EUR/USD", "EUR/GBP"]
+CRYPTOS = [
+    ("BTC-EUR", "Bitcoin"),
+    ("ETH-EUR", "Ethereum"),
+    ("SOL-EUR", "Solana"),
+]
+DIVISAS = [
+    ("EURUSD=X", "EUR/USD"),
+    ("EURGBP=X", "EUR/GBP"),
+]
+# Tope por peticion a la API de mercados. Son once peticiones seguidas
+# para el cuadro entero, asi que conviene que ninguna se eternice.
+MERCADOS_TIMEOUT = 12
 
 # Opcion 1 y 2 - Noticias
 PAIS_NOTICIAS = "Espana"

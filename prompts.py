@@ -95,11 +95,21 @@ linea entera."""
 
 
 def cotizaciones() -> str:
-    acciones = "\n".join(f"- {a}" for a in config.ACCIONES)
-    cryptos = "\n".join(f"- {c}" for c in config.CRYPTOS)
-    divisas = "\n".join(f"- {d}" for d in config.DIVISAS)
-    return f"""Hoy es {_hoy()}. Busca en internet la cotizacion actual
-de estos valores:
+    """
+    Prompt del comentario de mercado.
+
+    Ojo: los PRECIOS ya no salen de aqui, los da mercados.py contra una
+    API de datos. A la IA se le piden ahora las listas solo para que
+    sepa de que valores hablar; pedirle numeros era justo lo que hacia
+    que se colara su proceso ("necesito el precio exacto de AAPL...")
+    y que las cifras no cuadraran entre si.
+    """
+    acciones = "\n".join(f"- {nombre} ({simbolo})" for simbolo, nombre in config.ACCIONES)
+    cryptos = "\n".join(f"- {nombre} ({simbolo})" for simbolo, nombre in config.CRYPTOS)
+    divisas = "\n".join(f"- {nombre}" for _, nombre in config.DIVISAS)
+    return f"""Hoy es {_hoy()}. Busca en internet que ha pasado hoy en
+los mercados y explicamelo en pocas lineas. Estos son los valores que
+sigo:
 
 ACCIONES E INDICES:
 {acciones}
@@ -110,24 +120,17 @@ CRIPTOMONEDAS:
 DIVISAS:
 {divisas}
 
-Formato exacto, en columnas alineadas y sin nada mas:
+NO hagas una tabla de precios: los precios ya los tengo. Lo que quiero
+es el porque. Formato exacto:
 
-COTIZACIONES  {_hoy()}
+1) Una frase sobre como ha cerrado (o como va) el mercado espanol.
+2) Una frase sobre Wall Street.
+3) Dos o tres lineas, cada una empezando por el nombre de uno de mis
+   valores, solo para los que hayan tenido un movimiento destacable o
+   una noticia detras. Si ninguno la tiene, dilo en una linea y ya.
+4) Una linea sobre cripto solo si ha habido algun movimiento fuerte.
 
-ACCIONES E INDICES
-Valor            Precio        Var.dia
-...
-
-CRIPTOMONEDAS
-Valor            Precio        Var.dia
-...
-
-DIVISAS
-Par              Cambio        Var.dia
-...
-
-Al final, una sola linea que empiece por "NOTA:" diciendo la hora de
-los datos y si el mercado esta abierto o cerrado."""
+Sin introduccion ni conclusion."""
 
 
 def valor_suelto(consulta: str) -> str:

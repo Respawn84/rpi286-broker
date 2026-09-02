@@ -32,6 +32,7 @@ import actualizar
 import apps
 import config
 import ia
+import mercados
 import prompts
 from terminal import Terminal
 
@@ -108,25 +109,87 @@ def seccion_tiempo(term):
                "Consultando la prevision, espera unos segundos...")
 
 
+def _cuadro_cotizaciones(term):
+    """
+    El cuadro de precios, sacado de la API de mercados (no de la IA).
+
+    Son once peticiones HTTP seguidas, unos pocos segundos; lo que de
+    verdad se nota es el volcado por el cable, asi que se manda todo de
+    golpe y ya lo pagina el Terminal.
+    """
+    term.aviso("Consultando mercados, espera unos segundos...")
+
+    lineas = []
+    for titulo, valores in (("Acciones e indices", config.ACCIONES),
+                            ("Criptomonedas", config.CRYPTOS),
+                            ("Divisas", config.DIVISAS)):
+        if not valores:
+            continue
+        if lineas:
+            lineas.append("")
+        lineas.extend(mercados.cuadro(titulo, valores))
+
+    term.titulo(f"Cotizaciones {time.strftime('%d/%m/%Y')}")
+    term.page("\n".join(lineas))
+    term.print("")
+    term.print_wrapped(mercados.pie())
+    term.pausa()
+
+
+def _valor_suelto(term):
+    """Un valor cualquiera: se busca por nombre o por simbolo y se detalla."""
+    consulta = term.ask("Valor a consultar (ej: Repsol, BTC-EUR, AAPL):")
+    if not consulta:
+        return
+
+    term.aviso("Buscando el valor...")
+    try:
+        # Primero se prueba tal cual por si han escrito el simbolo
+        # exacto (AAPL); si no existe, se busca por nombre (repsol).
+        try:
+            fila = mercados.cotizacion(consulta.upper())
+        except mercados.MercadoError:
+            encontrado = mercados.buscar(consulta)
+            fila = mercados.cotizacion(encontrado["simbolo"], encontrado["nombre"])
+    except mercados.MercadoError as e:
+        term.print(f"No he podido consultar '{consulta}': {e}")
+        term.pausa()
+        return
+
+    term.titulo(fila["nombre"][:config.SCREEN_WIDTH])
+    term.print(mercados.linea_tabla(fila))
+    term.print("")
+    term.print(f"Simbolo:  {fila['simbolo']}")
+    if fila.get("minimo") and fila.get("maximo"):
+        term.print(f"Hoy:      {fila['minimo']:.4g} - {fila['maximo']:.4g} "
+                   f"{fila['moneda']}")
+    if fila.get("min52") and fila.get("max52"):
+        term.print(f"52 sem.:  {fila['min52']:.4g} - {fila['max52']:.4g} "
+                   f"{fila['moneda']}")
+    if fila.get("hora"):
+        term.print("Dato de:  " + time.strftime("%d/%m/%Y %H:%M",
+                                                time.localtime(fila["hora"])))
+    term.pausa()
+
+
 def seccion_cotizaciones(term):
     sel = term.menu("COTIZACIONES", [
         ("1", "Mi lista (acciones, cryptos y divisas)"),
         ("2", "Consultar un valor suelto"),
+        ("3", "Que ha pasado hoy en los mercados (Claude)"),
         ("0", "Volver"),
     ])
     if sel == "0":
         return
 
     if sel == "1":
-        seccion_ia(term, "Cotizaciones", prompts.cotizaciones(),
-                   "Consultando mercados, espera unos segundos...")
-        return
-
-    valor = term.ask("Valor a consultar (ej: Repsol, BTC, EUR/USD):")
-    if not valor:
-        return
-    seccion_ia(term, f"Cotizacion de {valor}", prompts.valor_suelto(valor),
-               "Consultando el mercado, espera unos segundos...")
+        _cuadro_cotizaciones(term)
+    elif sel == "2":
+        _valor_suelto(term)
+    else:
+        # Los precios ya los da la API; a la IA se le pide el porque.
+        seccion_ia(term, "Mercados hoy", prompts.cotizaciones(),
+                   "Preguntando a Claude, espera unos segundos...")
 
 
 # --------------------------------------------------------------------------

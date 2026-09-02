@@ -22,6 +22,7 @@ tal cual por si hace falta volver atras.
 | `terminal.py`  | Capa de pantalla/teclado sobre el puerto serie             |
 | `ia.py`        | Cliente de la API de Claude (consultas sueltas y chat)     |
 | `prompts.py`   | Prompts de cada seccion del menu                           |
+| `mercados.py` | Cotizaciones via API publica (Yahoo Finance)                |
 | `apps.py`      | Aplicaciones locales de la Raspberry                       |
 | `actualizar.py`| git pull desde el menu Configuracion (opcion 7)            |
 | `config.py`    | Toda la configuracion: puerto, ciudad, valores, modelo     |
@@ -48,7 +49,7 @@ python3 simulador.py
 1. Noticias Economicas          prompt + busqueda web
 2. Noticias Politicas           prompt + busqueda web
 3. Prevision del tiempo         ciudad de config.py u otra
-4. Cotizaciones                 lista de config.py o valor suelto
+4. Cotizaciones                 precios via API, sin pasar por la IA
 5. Aplicaciones                 submenu, todo local en la Pi
 6. Chat con Claude              el comportamiento del broker v1
 7. Configuracion                actualizar el broker desde GitHub
@@ -58,6 +59,42 @@ python3 simulador.py
 Aplicaciones (opcion 5): reloj para poner en hora el 286, calculadora,
 conversor de unidades, bloc de notas guardado en la Pi, estado de la
 Raspberry, adivina el numero y efemerides del dia.
+
+## Cotizaciones (opcion 4): datos de API, no de la IA
+
+Los precios los da [mercados.py](mercados.py) contra el endpoint
+publico de graficos de Yahoo Finance (`query1.finance.yahoo.com`), que
+no pide clave ni registro y solo necesita `urllib` de la libreria
+estandar: en la Raspberry no hay que instalar nada.
+
+Se hizo asi porque pedirle el cuadro a Claude no funcionaba: con la
+busqueda web se colaba en la respuesta su propio proceso ("necesito el
+precio exacto de AAPL para completar el cuadro..."), las cifras no
+cuadraban entre si y cada consulta costaba dinero y 15-20 segundos.
+
+La salida es una tabla con puntos de relleno, calculada para que todas
+las cifras caigan en la misma columna dentro de los 70 caracteres de
+`SCREEN_WIDTH`:
+
+```
+ACCIONES E INDICES
+------------------
+IBEX 35............................19.779,00 pts .............  -0,23%
+Banco Santander........................12,71 EUR .............  +1,02%
+```
+
+El submenu tiene tres opciones:
+
+1. **Mi lista**: los valores de `ACCIONES`, `CRYPTOS` y `DIVISAS` de
+   `config.py`, ahora pares `(simbolo, nombre)`. El simbolo es el de
+   Yahoo: `^IBEX` para indices, `.MC` para Madrid, `BTC-EUR` para
+   cripto, `EURUSD=X` para divisas. Un valor que falle sale como
+   "sin datos" y no tumba el resto del cuadro.
+2. **Consultar un valor suelto**: acepta el simbolo (`AAPL`) o el
+   nombre (`repsol`), que resuelve con el buscador de Yahoo, y ademas
+   del precio da maximo y minimo del dia y de 52 semanas.
+3. **Que ha pasado hoy en los mercados**: esta si es Claude, pero ya no
+   le pedimos numeros, solo el porque del movimiento.
 
 ## Configuracion -> Actualizar Broker (opcion 7)
 
