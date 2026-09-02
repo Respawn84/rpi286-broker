@@ -3,6 +3,7 @@ api.env
 
 # Datos generados en la Raspberry, no son codigo.
 notas.txt
+telegram_offset.txt
 
 __pycache__/
 *.pyc
