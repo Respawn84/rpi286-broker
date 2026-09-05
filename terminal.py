@@ -51,12 +51,47 @@ _ANSI_ESCAPE_RE = re.compile(
 
 def sanitize_bytes(raw: bytes) -> bytes:
     """
-    Quita secuencias de escape ANSI/VT100 y bytes de control sueltos
-    (todo lo que no sea imprimible en CP437 o TAB) antes de decodificar,
-    para que nada de "ruido" del cable llegue al menu o a la API.
+    Deja pasar solo lo que CHAT.EXE es capaz de mandar de verdad.
+
+    El filtro se define por lo que hace el bucle de teclado del 286:
+
+        } else if (tecla >= 32 && tecla < 127) {     // chat.c
+            input_buf[input_len++] = (char)tecla;
+
+    O sea ASCII imprimible y nada mas: ni acentos, ni bytes altos, ni
+    caracteres de control. Cualquier otra cosa que aparezca en el cable
+    es ruido por definicion, porque no hay forma de teclearla.
+
+    Antes esto aceptaba 0x20..0xFF, es decir toda la mitad alta de
+    CP437, y por ahi se colaban bytes de ruido que acababan enviados a
+    la API como si fueran un mensaje ('\\x80\\x80' llegaba como 'CC').
+    La mitad alta hace falta para lo que se manda HACIA el 286 (los
+    marcos de los menus), no para lo que llega DESDE el.
     """
     raw = _ANSI_ESCAPE_RE.sub(b"", raw)
-    return bytes(b for b in raw if b == 0x09 or 0x20 <= b <= 0xFF)
+    return bytes(b for b in raw if b == 0x09 or 0x20 <= b <= 0x7E)
+
+
+def parece_ruido(texto: str) -> bool:
+    """
+    Dice si una linea es demasiado corta para ser algo que alguien haya
+    escrito a proposito. Pensado SOLO para el chat libre.
+
+    No vale como filtro general: las opciones de menu son de un
+    caracter ('1', '0'), la paginacion avanza con un ENTER vacio, y en
+    "consultar un valor suelto" hay tickers reales de una o dos letras
+    (F de Ford, V de Visa, KO, BA). Por eso esto se aplica unicamente
+    donde cualquier texto es valido y equivocarse cuesta una llamada a
+    la API: la conversacion con Claude.
+    """
+    t = texto.strip()
+    if len(t) >= config.CHAT_MIN_LONGITUD:
+        return False
+    if t.upper() in config.CHAT_CORTAS_VALIDAS:
+        return False
+    if t.isdigit():
+        return False
+    return True
 
 
 class Terminal:
@@ -73,7 +108,8 @@ class Terminal:
     def read_line(self):
         """
         Devuelve la siguiente linea del 286 ya limpia y sin espacios:
-          - None  -> no ha llegado nada (timeout del puerto)
+          - None  -> no ha llegado nada: timeout del puerto, o lo que
+                     llego era ruido entero y se ha descartado
           - ""    -> el usuario pulso ENTER sin escribir nada
           - "..." -> texto
         """
@@ -105,12 +141,33 @@ class Terminal:
             if linea is not None:
                 return linea
 
-    def _decode(self, buf: bytearray) -> str:
+    def _decode(self, buf: bytearray):
+        """
+        Devuelve el texto de la linea, o None si lo que llego era ruido
+        entero.
+
+        La distincion importa: una linea que se queda vacia DESPUES de
+        filtrar no es lo mismo que un ENTER a secas. Si se devolviera ""
+        el menu se repintaria solo, la paginacion avanzaria de pagina y
+        el chat se comeria un turno, todo por un chispazo en el cable.
+        Devolviendo None queda como "no ha llegado nada", que es
+        exactamente lo que ha pasado, y wait_line sigue esperando.
+
+        Un ENTER de verdad llega con buf vacio, asi que sale por el
+        camino de "" y se sigue distinguiendo bien.
+        """
         raw = bytes(buf)
         limpio = sanitize_bytes(raw)
         if limpio != raw:
             print(f"[term] (filtrado ruido/ANSI: {raw!r} -> {limpio!r})")
-        return limpio.decode("cp437", errors="replace").strip()
+
+        texto = limpio.decode("cp437", errors="replace").strip()
+
+        if raw and not texto:
+            print("[term] (linea descartada: era ruido entero)")
+            return None
+
+        return texto
 
     def drain(self) -> None:
         """Tira lo que hubiera pendiente en el buffer de entrada."""
@@ -124,18 +181,32 @@ class Terminal:
 
     def _write_paced(self, data: bytes) -> None:
         """
-        Escribe byte a byte con CHAR_DELAY entre cada uno. Un write()
-        grande deja que el adaptador USB-serie reparta los bytes como
-        quiera, y varios los sueltan en rafaga al empezar; la UART del
-        286 no tiene FIFO y un byte no leido a tiempo se pierde.
+        Escribe la linea entera de un write() cuando CHAR_DELAY es 0, y
+        byte a byte con esa pausa entre cada uno cuando no lo es.
+
+        El envio byte a byte era obligatorio mientras CHAT.EXE recibia
+        por sondeo: la UART del 286 no tiene FIFO, algunos adaptadores
+        USB-serie sueltan los primeros bytes en rafaga, y un byte no
+        leido a tiempo se perdia. Ahora el 286 recibe por interrupciones
+        y guarda en un buffer de 4 KB, asi que la rafaga ya no molesta y
+        el freno solo costaba tiempo: con CHAR_DELAY = 0.003 el caudal
+        real eran ~330 bytes/s pasara lo que pasara con el baudrate.
+
+        Se deja el camino lento porque no cuesta nada mantenerlo y es la
+        vuelta atras si algun dia hay que hablar con un CHAT.EXE viejo.
         """
+        if config.CHAR_DELAY <= 0:
+            self.ser.write(data)
+            return
+
         for b in data:
             self.ser.write(bytes((b,)))
             time.sleep(config.CHAR_DELAY)
 
     def write_line(self, texto: str = "") -> None:
         self._write_paced(texto.encode("cp437", errors="replace") + b"\r\n")
-        time.sleep(config.LINE_DELAY)
+        if config.LINE_DELAY > 0:
+            time.sleep(config.LINE_DELAY)
 
     def print(self, texto: str = "") -> None:
         """Manda texto tal cual, linea a linea, sin reformatear."""

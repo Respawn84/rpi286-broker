@@ -11,8 +11,43 @@ la opcion 6, y aparecen secciones con prompts preparados y
 aplicaciones que se ejecutan en la propia Raspberry.
 
 **El protocolo serie no cambia**: lineas de texto terminadas en CR LF,
-9600 8N1. No hay que recompilar nada en el 286. `broker_v1.py` se deja
-tal cual por si hace falta volver atras.
+8N1. `broker_v1.py` se deja tal cual por si hace falta volver atras.
+
+## Velocidad del enlace: 28800 y recepcion por IRQ
+
+El enlace iba a 9600, pero lo que hacia lentos los menus no era el
+baudrate: era `CHAR_DELAY = 0.003` en [config.py](config.py). El broker
+mandaba **byte a byte con 3 ms de pausa entre cada uno**, o sea ~330
+bytes/s: el cable iba a 9600 pero el caudal real era el de unos 3300
+baudios. Un menu de 800 caracteres tardaba mas de dos segundos y medio.
+
+Ese freno tenia su motivo. `CHAT.EXE` recibia por **sondeo** contra una
+UART 8250/16450, que no tiene FIFO: si el bucle principal no pasaba por
+el registro de estado antes de que llegara el siguiente byte, ese byte
+se perdia. Y el bucle tiene que pintar en pantalla y hacer scroll.
+
+La solucion es cambiar el lado del 286, no el del broker:
+
+- `serial.c` recibe ahora **por interrupciones** (IRQ4 en COM1, IRQ3 en
+  COM2) y mete los bytes en un buffer circular de 4 KB. El bucle
+  principal se puede entretener un scroll entero sin perder nada.
+- Si la UART es una 16550A, se activa su FIFO de 16 bytes.
+- El 286 baja RTS al llenarse el buffer a 3/4, por si el cable lleva
+  RTS/CTS cruzados. Viene desactivado (`RTSCTS` en `config.py`): un
+  adaptador null modem barato cruza solo TX/RX, y activarlo sin tener
+  los pines 7-8 cruzados deja al broker escribiendo contra un CTS que
+  nunca sube. Ahi se explica como comprobarlo.
+- Con eso, `CHAR_DELAY` y `LINE_DELAY` pasan a 0 y el baudrate sube a
+  **28800**. El caudal real pasa de ~330 a ~2900 bytes/s: los menus
+  salen unas ocho o nueve veces mas rapido.
+
+**Hay que recompilar `CHAT.EXE`** (`build_chat.bat` en el repo del
+286): los dos extremos tienen que ir a la misma velocidad. `BAUDRATE`
+en `config.py` y `BAUDIOS` en `chat.c` son el mismo numero. Si el 286
+pinta basura, es que no coinciden.
+
+Si hiciera falta volver atras con un `CHAT.EXE` antiguo, `broker_v1.py`
+sigue con sus 9600 y su envio frenado, sin tocar.
 
 ## Ficheros
 
@@ -121,9 +156,10 @@ Puesta en marcha:
 Como funciona por dentro:
 
 - **Solo se ven mensajes mientras la seccion esta abierta.** No hay
-  hilo de fondo ni avisos en el menu principal: a 9600 baudios sin FIFO
-  del lado del 286, escribir en la pantalla desde dos sitios a la vez
-  es basura asegurada. Al entrar se descarta lo atrasado.
+  hilo de fondo ni avisos en el menu principal: el 286 tiene una sola
+  pantalla y ningun modo de decir "esto va aparte", asi que escribir
+  desde dos sitios a la vez es basura asegurada, vaya el cable a la
+  velocidad que vaya. Al entrar se descarta lo atrasado.
 - Dentro de una conversacion, lo que escribas se envia con ENTER y cada
   `TELEGRAM_POLL` segundos (5 por defecto) se mira si han contestado.
   El truco para hacer las dos cosas sin hilos es que

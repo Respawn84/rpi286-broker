@@ -11,8 +11,9 @@ tiempo, cotizaciones) y aplicaciones que se ejecutan en la propia
 Raspberry sin tocar la API.
 
 El protocolo serie con CHAT.EXE es EXACTAMENTE el mismo que en el v1
-(lineas de texto terminadas en CR LF, 9600 8N1), asi que no hay que
-recompilar nada en el 286.
+(lineas de texto terminadas en CR LF, 8N1). La velocidad si ha subido
+a 28800 y la recepcion del 286 pasa a ser por interrupciones, asi que
+CHAT.EXE hay que recompilarlo (ver el README).
 
 Requisitos:
     pip3 install pyserial anthropic --break-system-packages
@@ -35,6 +36,7 @@ import ia
 import mercados
 import prompts
 import telegrama
+import terminal
 from terminal import Terminal
 
 MENU_PRINCIPAL = [
@@ -51,7 +53,7 @@ MENU_PRINCIPAL = [
 
 BANNER = [
     "",
-    "   PERELLASOFT / RASPBERRY PI  --  ENLACE SERIE 9600 8N1",
+    f"   PERELLASOFT / RASPBERRY PI  --  ENLACE SERIE {config.BAUDRATE} 8N1",
     "   Broker v2 conectado.",
     "",
 ]
@@ -244,6 +246,19 @@ def seccion_chat(term):
             continue
         if texto == "0" or texto.upper() in ("MENU", "SALIR", "FIN"):
             return
+
+        # Ruido que ha sobrevivido a los filtros de bytes: aqui cualquier
+        # texto es valido, asi que no hay validacion que lo pare y cada
+        # chispazo del cable se convertiria en una llamada a la API.
+        #
+        # No se descarta en silencio: se dice en pantalla lo que llego,
+        # para que si de verdad era suyo se pueda repetir. Perder un "ok"
+        # sin avisar seria peor que la llamada de mas.
+        if terminal.parece_ruido(texto):
+            print(f"[chat] descartado por parecer ruido: {texto!r}")
+            term.print(f"[ignorado '{texto}': parece ruido de la linea.")
+            term.print(" Si era tuyo, escribelo otra vez o alargalo.]")
+            continue
 
         ts = time.strftime("%H:%M:%S")
         print(f"[{ts}] 286 dice: {texto!r}")
@@ -528,6 +543,9 @@ def open_port():
         stopbits=config.STOPBITS,
         timeout=1,
         write_timeout=5,
+        # Solo tiene efecto si el cable lleva RTS/CTS cruzados; ver la
+        # nota de RTSCTS en config.py antes de activarlo.
+        rtscts=config.RTSCTS,
     )
 
 

@@ -16,7 +16,22 @@ BASE_DIR = Path(__file__).parent
 # --------------------------------------------------------------------------
 
 PORT = "/dev/ttyUSB0"
-BAUDRATE = 9600
+# Tiene que coincidir con BAUDIOS en chat.c del 286. Divisores exactos
+# de la UART (115200/n): 9600 (n=12), 28800 (n=4), 38400 (n=3), 57600
+# (n=2). Si en el 286 sale basura en pantalla, lo primero que hay que
+# mirar es que los dos numeros sean el mismo.
+#
+#
+# Nota sobre 28800: no es una velocidad estandar de termios, asi que en
+# Linux pyserial la pide por el camino de baudrate a medida (TCSETS2).
+# El conversor que hay puesto es un PL2303, y 28800 esta en la tabla de
+# velocidades nativas de su driver (75, 150, ... 19200, 28800, 38400,
+# 57600, 115200...), asi que sale exacta y no redondeada.
+# Si algun dia se cambia de conversor por uno mas quisquilloso, 38400 es
+# velocidad estandar, va mas rapido y tambien es divisor exacto: seria
+# el cambio de una linea aqui y otra en chat.c.
+#
+BAUDRATE = 28800
 # Valores tal cual los acepta serial.Serial (8N1). Se ponen literales
 # para que este fichero no necesite importar pyserial: asi el simulador
 # y las aplicaciones locales se pueden probar en cualquier maquina.
@@ -33,14 +48,71 @@ BOX_WIDTH = 62
 # Lineas por pagina antes de parar y esperar ENTER.
 LINES_PER_PAGE = 16
 
-# Ritmo de escritura. Ver la explicacion larga en broker_v1.py: la UART
-# del 286 no tiene FIFO y algunos adaptadores USB-serie sueltan los
-# primeros bytes en rafaga, asi que forzamos un ritmo mas lento que el
-# baudrate real.
-CHAR_DELAY = 0.003
-# Margen extra tras el CRLF de cada linea: CHAT.EXE mueve la VRAM una
-# fila hacia arriba (scroll) antes de poder leer el siguiente byte.
-LINE_DELAY = 0.015
+# Ritmo de escritura, en segundos por caracter. Durante mucho tiempo
+# esto valio 0.003, y era el verdadero cuello de botella de los menus:
+# 3 ms por byte son ~330 bytes/s, o sea que el cable iba a 9600 pero el
+# caudal real era el de unos 3300 baudios. Un menu de 800 caracteres
+# tardaba mas de dos segundos y medio.
+#
+# El freno estaba ahi por una razon buena: CHAT.EXE recibia por sondeo
+# contra una UART sin FIFO, y un byte no recogido a tiempo se perdia.
+# Desde que serial.c del 286 recibe por interrupciones y amortigua en
+# un buffer de 4 KB, ya no hace falta: se escribe la linea entera de
+# una vez y manda el baudrate, no el sleep.
+#
+# Si alguna vez hubiera que volver a frenar (un cable muy largo, un
+# adaptador raro), poner aqui un valor > 0 vuelve a activar el envio
+# byte a byte tal cual estaba.
+CHAR_DELAY = 0.0
+# Margen extra tras el CRLF de cada linea. Existia porque CHAT.EXE
+# mueve la VRAM una fila hacia arriba (scroll) antes de poder leer el
+# siguiente byte; ahora ese scroll ocurre mientras la ISR sigue
+# metiendo bytes en el buffer, asi que tampoco hace falta.
+LINE_DELAY = 0.0
+
+# Control de flujo por hardware. El 286 baja RTS cuando su buffer de
+# recepcion se llena a 3/4 y lo vuelve a subir al bajar de 1/4; con
+# esto activado, la Pi le hace caso y para.
+#
+# Solo sirve si el cable cruza de verdad RTS/CTS (pines 7-8). Un
+# adaptador "null modem" barato cruza solo TX/RX y realimenta el RTS de
+# cada lado a su propio CTS; uno completo cruza ademas 7-8 y 4-6. Por
+# fuera son identicos, asi que hay que medirlo, no suponerlo: CHAT.EXE
+# sube DTR y RTS al arrancar y los baja al salir, asi que se ve mirando
+# si el CTS de la Pi se mueve al entrar y salir del chat.
+#
+# Y aunque el cable los cruce, activarlo tiene un efecto secundario:
+# con el 286 en el prompt del DOS (sin CHAT.EXE cargado) su RTS esta
+# bajo, asi que el write() de la Pi se bloquea hasta agotar el
+# write_timeout de 5 s y salta SerialTimeoutException. Antes, sin
+# control de flujo, el broker escribia al vacio tan tranquilo.
+#
+# Con el buffer de 4 KB del 286 no hace falta a estas velocidades: es
+# una red de seguridad, no un requisito.
+RTSCTS = False
+
+# --------------------------------------------------------------------------
+# Filtro de ruido de linea
+# --------------------------------------------------------------------------
+
+# El grueso del ruido lo paran dos filtros que no se configuran aqui:
+# la ISR del 286 tira los bytes con error de trama o paridad, y
+# sanitize_bytes() en terminal.py solo deja pasar ASCII imprimible,
+# que es lo unico que CHAT.EXE puede enviar. Esto es la ultima red,
+# para el ruido que casualmente salga como texto legible.
+#
+# Se aplica SOLO al chat libre (opcion 6), que es el unico sitio donde
+# cualquier texto es valido y donde equivocarse cuesta una llamada a la
+# API. En los menus no hace falta: ya validan contra las teclas que
+# existen. Y en "consultar un valor suelto" seria un estorbo, porque
+# hay tickers reales de una y dos letras (F, V, KO, BA).
+#
+# Nunca descarta en silencio: lo que se ignora se dice en pantalla,
+# para poder repetirlo si de verdad era del usuario.
+CHAT_MIN_LONGITUD = 3
+CHAT_CORTAS_VALIDAS = {
+    "SI", "NO", "OK", "YA", "VA", "EH", "AH", "HM", "?", "??",
+}
 
 # --------------------------------------------------------------------------
 # API de Claude
