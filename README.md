@@ -7,7 +7,7 @@ con un menu navegable delante de la API de Claude.
 
 `broker_v1.py` mandaba a la API cualquier linea que llegara del 286.
 `broker_v2.py` mete un menu delante: la conversacion libre pasa a ser
-la opcion 6, y aparecen secciones con prompts preparados y
+la opcion 5, y aparecen secciones con prompts preparados y
 aplicaciones que se ejecutan en la propia Raspberry.
 
 **El protocolo serie no cambia**: lineas de texto terminadas en CR LF,
@@ -57,11 +57,12 @@ sigue con sus 9600 y su envio frenado, sin tocar.
 | `terminal.py`  | Capa de pantalla/teclado sobre el puerto serie             |
 | `ia.py`        | Cliente de la API de Claude (consultas sueltas y chat)     |
 | `prompts.py`   | Prompts de cada seccion del menu                           |
-| `mercados.py` | Cotizaciones via API publica (Yahoo Finance)                |
-| `telegrama.py` | Cliente de Telegram (Bot API), opcion 7                    |
+| `noticias.py`  | Titulares por RSS de Europa Press (opcion 1)               |
+| `mercados.py`  | Cotizaciones via API publica (Yahoo Finance)               |
+| `telegrama.py` | Cliente de Telegram (Bot API), opcion 6                    |
 | `emojis.py`    | Tabla de emoji -> CP437, para mantener a mano              |
 | `apps.py`      | Aplicaciones locales de la Raspberry                       |
-| `actualizar.py`| git pull desde el menu Configuracion (opcion 8)            |
+| `actualizar.py`| git pull desde el menu Configuracion (opcion 7)            |
 | `config.py`    | Configuracion por defecto: puerto, ciudad, valores, modelo |
 | `api.env`      | Claves y lo que cambia de una maquina a otra (sin git)     |
 | `simulador.py` | Prueba el menu en la consola, sin 286 ni cable             |
@@ -95,8 +96,8 @@ Claves que reconoce `api.env`, todas opcionales menos la primera:
 |-------|----------|-------------|
 | `ANTHROPIC_API_KEY` | La clave de Claude | (obligatoria) |
 | `PORT` | Puerto serie del conversor USB | `/dev/ttyUSB0` |
-| `CIUDAD` / `PAIS` | Prevision del tiempo (opcion 3) | `Madrid` / `Espana` |
-| `TELEGRAM_TOKEN` | Bot de Telegram (opcion 7) | sin Telegram |
+| `CIUDAD` / `PAIS` | Prevision del tiempo (opcion 2) | `Madrid` / `Espana` |
+| `TELEGRAM_TOKEN` | Bot de Telegram (opcion 6) | sin Telegram |
 | `TELEGRAM_CHATS` | Conversaciones fijadas | lista vacia |
 
 Lo demas (ritmo del cable, ancho de pantalla, lista de valores de
@@ -111,22 +112,67 @@ nombre del aparato va escrito dentro de la unidad de systemd.
 ## El menu
 
 ```
-1. Noticias Economicas          prompt + busqueda web
-2. Noticias Politicas           prompt + busqueda web
-3. Prevision del tiempo         ciudad de api.env u otra
-4. Cotizaciones                 precios via API, sin pasar por la IA
-5. Aplicaciones                 submenu, todo local en la Pi
-6. Chat con Claude              el comportamiento del broker v1
-7. Telegram                     enviar y recibir, via bot
-8. Configuracion                actualizar el broker desde GitHub
+1. Noticias                     RSS de Europa Press, sin pasar por la IA
+2. Prevision del tiempo         ciudad de api.env u otra
+3. Cotizaciones                 precios via API, sin pasar por la IA
+4. Aplicaciones                 submenu, todo local en la Pi
+5. Chat con Claude              el comportamiento del broker v1
+6. Telegram                     enviar y recibir, via bot
+7. Configuracion                actualizar el broker y reiniciar
 0. Apagar la sesion
 ```
 
-Aplicaciones (opcion 5): reloj para poner en hora el 286, calculadora,
+Aplicaciones (opcion 4): reloj para poner en hora el 286, calculadora,
 conversor de unidades, bloc de notas guardado en la Pi, estado de la
 Raspberry, adivina el numero y efemerides del dia.
 
-## Cotizaciones (opcion 4): datos de API, no de la IA
+## Noticias (opcion 1): RSS de Europa Press
+
+Antes esto eran dos opciones del menu (economicas y politicas) que le
+preguntaban a Claude con busqueda web. Ahora es una sola que lee el RSS
+de Europa Press. Es la misma decision que se tomo con las cotizaciones:
+**para datos, una fuente de datos**; a la IA se le pregunta el porque,
+no el que. Los titulares los escribe una redaccion, salen en un segundo
+en vez de veinte, traen hora de publicacion y no cuestan una llamada a
+la API. La opcion 2 desaparecio porque la politica ya viene dentro del
+feed de Nacional.
+
+**Los menus no estan escritos en el codigo.** Salen del OPML que publica
+el propio medio, un indice de todos sus feeds ya agrupado por temas:
+
+```
+https://www.europapress.es/rss/europapress.opml.xml
+```
+
+Son cuatro grupos y unos 44 canales. Si Europa Press anade una seccion
+manana, aparece sola en el 286 sin tocar nada. Para leer otro periodico
+basta con cambiar `NOTICIAS_OPML` (en `config.py` o en `api.env`),
+siempre que publique un OPML con feeds RSS estandar.
+
+La navegacion son tres niveles, y la cabecera del marco lleva las migas
+de pan para saber siempre donde estas:
+
+```
+╔════════════════════════════════════════════════════════════╗
+║ NOTICIAS > Actualidad Autonomica > Madrid                  ║
+╠════════════════════════════════════════════════════════════╣
+║   1. 05/09 18:42  El Ayuntamiento aprueba...               ║
+```
+
+Grupo -> canal -> titular -> el resumen del feed, paginado. Como el
+grupo autonomico tiene 17 canales y en la ventana de `CHAT.EXE` solo
+caben unas doce lineas de menu, los menus largos se parten en paginas y
+se navega con `S` (siguiente) y `A` (anterior).
+
+Del RSS se quita el HTML y las entidades (`&amp;`, `&#8220;`) y se pasa
+por [emojis.py](emojis.py), que es quien sabe cambiar las comillas
+tipograficas y las rayas largas de los teletipos por algo que exista en
+CP437. Los acentos y la ene no se tocan: CP437 los tiene.
+
+El indice de canales se cachea un dia y cada feed cinco minutos, para
+que moverse por los menus no sea una descarga por pantalla.
+
+## Cotizaciones (opcion 3): datos de API, no de la IA
 
 Los precios los da [mercados.py](mercados.py) contra el endpoint
 publico de graficos de Yahoo Finance (`query1.finance.yahoo.com`), que
@@ -162,7 +208,7 @@ El submenu tiene tres opciones:
 3. **Que ha pasado hoy en los mercados**: esta si es Claude, pero ya no
    le pedimos numeros, solo el porque del movimiento.
 
-## Telegram (opcion 7)
+## Telegram (opcion 6)
 
 Enviar y recibir mensajes de Telegram desde MS-DOS, con un bot de la
 Bot API. Es HTTPS y JSON, igual que las cotizaciones, asi que **no hay
@@ -222,18 +268,24 @@ rayas raras que meten los moviles; para anadir otro basta con una linea
 mas en `TABLA`. Los acentos y la ene NO se tocan: CP437 los tiene y se
 ven bien en el 286.
 
-## Configuracion -> Actualizar Broker (opcion 8)
+## Configuracion -> Actualizar Broker (opcion 7)
 
 Para no tener que abrir un SSH cada vez que se toca el codigo. El flujo
 es: `git push` desde el PC o el Mac, y en el 286 **Configuracion ->
 Actualizar Broker**. La Raspberry hace el `git pull` sola y, si ha
-entrado codigo nuevo, ofrece reiniciarse para aplicarlo.
+entrado codigo nuevo, **se reinicia sola** para aplicarlo.
 
 Detalles que conviene saber:
 
 - Se hace `git pull --ff-only` y, antes, se comprueba que no haya
   cambios locales. Si los hay, el broker se planta y avisa: un merge a
   ciegas no se puede resolver desde una pantalla de 286.
+- El reinicio **no se pregunta**: si el `git pull` trae algo, se aplica.
+  Poder quedarse con el codigo viejo era la forma facil de acabar con un
+  broker que dice estar actualizado y no lo esta, y desde el 286 no hay
+  manera de notar la diferencia. Ademas el codigo recien traido puede no
+  casar con el que ya esta en memoria (un `config.py` con claves nuevas,
+  por ejemplo).
 - El reinicio **no usa `sudo systemctl restart`**: el servicio corre con
   `NoNewPrivileges=true` y no puede escalar privilegios. En vez de eso
   el proceso sale con codigo 0 y `Restart=always` hace que systemd lo

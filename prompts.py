@@ -41,36 +41,6 @@ def _hoy() -> str:
     return time.strftime("%d/%m/%Y")
 
 
-def noticias_economicas() -> str:
-    return f"""Hoy es {_hoy()}. Busca en internet las noticias de
-economia y mercados mas importantes de las ultimas 24 horas, con foco en
-{config.PAIS_NOTICIAS} y en lo internacional que afecte a
-{config.PAIS_NOTICIAS}.
-
-Dame las {config.NUM_NOTICIAS} mas relevantes. Formato exacto:
-
-1) TITULAR EN UNA LINEA
-   Dos frases explicando que ha pasado y por que importa.
-
-Deja una linea en blanco entre noticia y noticia. No pongas
-introduccion ni conclusion, empieza directamente por la noticia 1."""
-
-
-def noticias_politicas() -> str:
-    return f"""Hoy es {_hoy()}. Busca en internet las noticias de
-politica mas importantes de las ultimas 24 horas, con foco en
-{config.PAIS_NOTICIAS} y algo de internacional relevante.
-
-Dame las {config.NUM_NOTICIAS} mas relevantes. Formato exacto:
-
-1) TITULAR EN UNA LINEA
-   Dos frases explicando que ha pasado y por que importa.
-
-Deja una linea en blanco entre noticia y noticia. Se neutral: cuenta
-los hechos, no opines. No pongas introduccion ni conclusion, empieza
-directamente por la noticia 1."""
-
-
 def tiempo(ciudad: str = None) -> str:
     lugar = ciudad or f"{config.CIUDAD}, {config.PAIS}"
     return f"""Hoy es {_hoy()}. Busca en internet la prevision

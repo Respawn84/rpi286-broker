@@ -6,8 +6,8 @@ broker_v2.py -- Puente serie 286 <-> Raspberry <-> Claude API,
 Diferencia con el v1: el v1 mandaba a la API cualquier linea que
 llegara del 286 y devolvia la respuesta. El v2 mete delante un menu
 navegable; la conversacion libre con Claude pasa a ser una opcion mas
-(la 6), y ademas hay secciones con prompts preparados (noticias,
-tiempo, cotizaciones) y aplicaciones que se ejecutan en la propia
+(la 5), y ademas hay secciones con prompts preparados (tiempo),
+noticias por RSS, cotizaciones por API, y aplicaciones en la propia
 Raspberry sin tocar la API.
 
 El protocolo serie con CHAT.EXE es EXACTAMENTE el mismo que en el v1
@@ -34,20 +34,22 @@ import apps
 import config
 import ia
 import mercados
+import noticias
 import prompts
 import telegrama
 import terminal
 from terminal import Terminal
 
+# Las opciones se renumeran al quitar una: dejar un hueco en el 2 seria
+# peor que mover los numeros una vez.
 MENU_PRINCIPAL = [
-    ("1", "Noticias Economicas"),
-    ("2", "Noticias Politicas"),
-    ("3", "Prevision del tiempo"),
-    ("4", "Cotizaciones - Acciones y Cryptos"),
-    ("5", "Aplicaciones"),
-    ("6", "Chat con Claude"),
-    ("7", "Telegram"),
-    ("8", "Configuracion"),
+    ("1", "Noticias - Europa Press"),
+    ("2", "Prevision del tiempo"),
+    ("3", "Cotizaciones - Acciones y Cryptos"),
+    ("4", "Aplicaciones"),
+    ("5", "Chat con Claude"),
+    ("6", "Telegram"),
+    ("7", "Configuracion"),
     ("0", "Apagar la sesion"),
 ]
 
@@ -65,9 +67,10 @@ BANNER = [
 
 def seccion_ia(term, titulo: str, prompt: str, aviso: str) -> None:
     """
-    Patron comun a las opciones 1-4: avisar de que va a tardar (una
-    consulta con busqueda web son 10-20 segundos y el 286 se queda
-    mudo mientras tanto), preguntar, y volcar el resultado paginado.
+    Patron comun al tiempo y al "que ha pasado hoy" de mercados: avisar
+    de que va a tardar (una consulta con busqueda web son 10-20 segundos
+    y el 286 se queda mudo mientras tanto), preguntar, y volcar el
+    resultado paginado.
     """
     term.aviso(aviso)
     try:
@@ -83,14 +86,103 @@ def seccion_ia(term, titulo: str, prompt: str, aviso: str) -> None:
     term.pausa()
 
 
-def seccion_noticias_economicas(term):
-    seccion_ia(term, "Noticias economicas", prompts.noticias_economicas(),
-               "Buscando noticias economicas, espera unos segundos...")
+# --------------------------------------------------------------------------
+# Noticias (opcion 1): RSS de Europa Press, tres niveles de menu
+# --------------------------------------------------------------------------
+#
+# Antes esto eran dos opciones del menu principal (economicas y
+# politicas) que le preguntaban a Claude con busqueda web. Ahora es una
+# sola que va al RSS de Europa Press: los titulares los escribe una
+# redaccion, salen en un segundo en vez de veinte y no cuestan una
+# llamada a la API. La politica ya viene dentro del feed de Nacional,
+# asi que la opcion 2 desaparecio.
+#
+# La estructura de menus no esta escrita aqui: sale del OPML que
+# publica el propio medio (ver noticias.py). Si manana anaden una
+# seccion nueva, aparece sola en el 286.
+
+def _articulo(term, art):
+    """Un titular abierto: titulo, fecha y el resumen del feed."""
+    term.titulo(art["titulo"][:config.SCREEN_WIDTH])
+    if art["fecha"]:
+        term.print(f"({art['fecha']})")
+    term.print("")
+
+    if art["resumen"]:
+        term.page(art["resumen"])
+    else:
+        term.print("Este titular viene sin resumen en el feed.")
+
+    # El enlace no sirve para nada en el 286, pero deja apuntado donde
+    # esta la noticia entera por si se quiere leer luego en otro sitio.
+    if art["enlace"]:
+        term.print("")
+        term.print_wrapped(art["enlace"])
+
+    term.pausa()
 
 
-def seccion_noticias_politicas(term):
-    seccion_ia(term, "Noticias politicas", prompts.noticias_politicas(),
-               "Buscando noticias politicas, espera unos segundos...")
+def _feed(term, camino, feed):
+    """Los titulares de un canal. Se elige uno por numero para leerlo."""
+    term.aviso(f"Bajando titulares de {feed.nombre}...")
+    try:
+        arts = noticias.articulos(feed.url)
+    except noticias.NoticiasError as e:
+        term.print(f"No he podido leer {feed.nombre}: {e}")
+        term.pausa()
+        return
+
+    camino = terminal.ruta(camino, feed.nombre)
+
+    while True:
+        # La fecha delante: en una lista de 25 titulares del mismo dia
+        # es lo que distingue lo de hace diez minutos de lo de anoche.
+        opciones = [
+            (str(i), f"{a['fecha']}  {a['titulo']}" if a["fecha"] else a["titulo"])
+            for i, a in enumerate(arts, start=1)
+        ]
+        volver = [("0", "Volver a los canales")]
+
+        sel = term.menu(camino, opciones, f"{len(arts)} titulares", volver)
+        if sel == "0":
+            return
+        _articulo(term, arts[int(sel) - 1])
+
+
+def _grupo(term, camino, grupo):
+    """Los canales de un grupo del OPML."""
+    camino = terminal.ruta(camino, grupo.nombre)
+
+    while True:
+        opciones = [(str(i), f.nombre) for i, f in enumerate(grupo.feeds, start=1)]
+        volver = [("0", "Volver a los grupos")]
+
+        sel = term.menu(camino, opciones, None, volver)
+        if sel == "0":
+            return
+        _feed(term, camino, grupo.feeds[int(sel) - 1])
+
+
+def seccion_noticias(term):
+    term.aviso("Consultando los canales de Europa Press...")
+    try:
+        gs = noticias.grupos()
+    except noticias.NoticiasError as e:
+        term.titulo("Noticias")
+        term.print("No he podido leer el indice de canales:")
+        term.print_wrapped(str(e))
+        term.pausa()
+        return
+
+    while True:
+        opciones = [(str(i), f"{g.nombre}  ({len(g.feeds)} canales)")
+                    for i, g in enumerate(gs, start=1)]
+        volver = [("0", "Volver al menu principal")]
+
+        sel = term.menu("NOTICIAS", opciones, "Europa Press", volver)
+        if sel == "0":
+            return
+        _grupo(term, "NOTICIAS", gs[int(sel) - 1])
 
 
 def seccion_tiempo(term):
@@ -415,7 +507,7 @@ def seccion_telegram(term):
         opciones = [(str(i), nombre)
                     for i, (_, nombre) in enumerate(config.TELEGRAM_CHATS, 1)]
         opciones.append(("L", "Ver chats que han escrito al bot"))
-        opciones.append(("0", "Volver al menu principal"))
+        volver = [("0", "Volver al menu principal")]
 
         pie = None if config.TELEGRAM_CHATS else "Aun no hay conversaciones fijadas"
         sel = term.menu("TELEGRAM", opciones, pie=pie)
@@ -480,18 +572,17 @@ def seccion_actualizar(term):
         term.pausa()
         return
 
-    sel = term.menu("REINICIAR EL BROKER", [
-        ("1", "Reiniciar ahora y aplicar la actualizacion"),
-        ("0", "Luego (sigo con el codigo viejo)"),
-    ])
-    if sel == "0":
-        term.print("Vale. La actualizacion entrara en el proximo reinicio.")
-        term.pausa()
-        return
-
+    # El reinicio ya no se pregunta: si ha entrado codigo nuevo, se
+    # aplica. Seguir con el viejo era la forma facil de acabar con un
+    # broker que dice estar actualizado y no lo esta, y desde el 286 no
+    # hay manera de notar la diferencia. Ademas el codigo recien traido
+    # puede no casar con el que ya esta en memoria (un config.py con
+    # claves nuevas, por ejemplo), asi que quedarse a medias es
+    # justamente el estado que no interesa.
     term.print("")
-    term.print("Reiniciando el broker. Espera unos segundos y pulsa")
-    term.print("ENTER para que vuelva a salir el menu.")
+    term.print("Reiniciando el broker para aplicar la actualizacion.")
+    term.print("Espera unos segundos y pulsa ENTER para que vuelva a")
+    term.print("salir el menu.")
     print("[broker v2] Saliendo para que systemd relance con el codigo nuevo.")
     # Restart=always en la unidad: salir es la forma de reiniciarse
     # sin necesitar permisos de root desde dentro del servicio.
@@ -519,14 +610,13 @@ def seccion_configuracion(term):
 # --------------------------------------------------------------------------
 
 SECCIONES = {
-    "1": seccion_noticias_economicas,
-    "2": seccion_noticias_politicas,
-    "3": seccion_tiempo,
-    "4": seccion_cotizaciones,
-    "5": seccion_aplicaciones,
-    "6": seccion_chat,
-    "7": seccion_telegram,
-    "8": seccion_configuracion,
+    "1": seccion_noticias,
+    "2": seccion_tiempo,
+    "3": seccion_cotizaciones,
+    "4": seccion_aplicaciones,
+    "5": seccion_chat,
+    "6": seccion_telegram,
+    "7": seccion_configuracion,
 }
 
 

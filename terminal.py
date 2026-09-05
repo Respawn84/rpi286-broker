@@ -72,6 +72,34 @@ def sanitize_bytes(raw: bytes) -> bytes:
     return bytes(b for b in raw if b == 0x09 or 0x20 <= b <= 0x7E)
 
 
+def ruta(*partes) -> str:
+    """
+    Migas de pan para el titulo de la caja: "NOTICIAS > Autonomica > Madrid".
+
+    Con menus anidados tres niveles, un titulo fijo como "NOTICIAS" deja
+    de decir donde estas: dentro de "Madrid" y dentro de "Deportes" la
+    pantalla se ve igual. Esto pone el camino entero en la cabecera del
+    marco, que es el unico sitio que siempre esta a la vista.
+
+    Si no cabe en BOX_WIDTH se recortan tramos por la IZQUIERDA, no por
+    la derecha: el ultimo tramo es donde estas ahora, que es justo el
+    dato que no se puede perder.
+    """
+    partes = [str(p).strip() for p in partes if p]
+    if not partes:
+        return ""
+
+    # caja() escribe f" {titulo}" dentro de un interior de BOX_WIDTH - 2.
+    ancho = config.BOX_WIDTH - 3
+
+    texto = " > ".join(partes)
+    while len(texto) > ancho and len(partes) > 1:
+        partes.pop(0)
+        texto = "... > " + " > ".join(partes)
+
+    return texto[:ancho]
+
+
 def parece_ruido(texto: str) -> bool:
     """
     Dice si una linea es demasiado corta para ser algo que alguien haya
@@ -274,10 +302,26 @@ class Terminal:
         self.write_line(ESQ_II + BORDE_H * interior + ESQ_ID)
 
     def titulo(self, texto: str) -> None:
-        """Cabecera ligera para las pantallas de resultado."""
+        """
+        Cabecera ligera para las pantallas de resultado.
+
+        Se pasa a mayusculas solo si el resultado sigue existiendo en
+        CP437. CP437 tiene las minusculas acentuadas (a, e, i, o, u) y
+        la ene, pero de las mayusculas solo trae E, N, C y las del
+        aleman; A, I, O y U acentuadas no existen. Un titular de prensa
+        en espanol como "Reforma de la Gran Via" se convertiria en
+        "GRAN V?A" al codificar. Cuando pasa eso se deja tal cual vino,
+        que se lee peor de cabecera pero se lee.
+        """
+        encabezado = texto.upper()
+        try:
+            encabezado.encode("cp437")
+        except UnicodeEncodeError:
+            encabezado = texto
+
         self.write_line("")
-        self.write_line(texto.upper())
-        self.write_line("-" * min(len(texto), config.SCREEN_WIDTH))
+        self.write_line(encabezado)
+        self.write_line("-" * min(len(encabezado), config.SCREEN_WIDTH))
 
     def aviso(self, texto: str) -> None:
         self.write_line(f"[{texto}]")
@@ -294,7 +338,7 @@ class Terminal:
         self.write_line(texto)
         self.wait_line()
 
-    def menu(self, titulo: str, opciones, pie: str = None) -> str:
+    def menu(self, titulo: str, opciones, pie: str = None, fijas=None) -> str:
         """
         Pinta un menu y espera una opcion valida.
 
@@ -302,8 +346,65 @@ class Terminal:
         clave elegida en mayusculas. Un ENTER a secas repinta el menu
         (util cuando el 286 arranca CHAT.EXE despues del broker y se ha
         perdido el menu inicial); cualquier otra cosa avisa sin repintar
-        el marco entero, que a 9600 baudios cuesta un par de segundos.
+        el marco entero, que cuesta lo suyo en el cable.
+
+        Si hay mas opciones de las que caben en la ventana del 286, el
+        menu se parte en paginas y se navega con S (siguiente) y A
+        (anterior). Sin esto, los 17 canales autonomicos de Europa Press
+        se saldrian por arriba y la mitad de la lista ya no estaria en
+        pantalla justo cuando toca elegir.
+
+        'fijas' son opciones que salen en TODAS las paginas: el "0.
+        Volver" tiene que ir aqui, no en 'opciones'. Si se pagina y el
+        volver es una opcion mas, acaba solo en la ultima pagina y desde
+        la primera no hay forma de salir sin recorrerselas todas.
+
+        Aviso para quien anada menus: en un menu que pagine, las claves
+        S y A quedan reservadas. Los menus largos los genera el propio
+        broker con claves numericas, asi que hoy no choca con nada.
         """
+        opciones = list(opciones)
+        fijas = list(fijas or [])
+
+        # Cuentas de altura: la zona de contenido de CHAT.EXE son 18
+        # filas y el marco se lleva seis (borde, titulo, separador,
+        # separador del pie, pie y borde de abajo), asi que MENU_MAX_
+        # OPCIONES lineas de opciones es lo que cabe sin desbordar.
+        hueco = config.MENU_MAX_OPCIONES - len(fijas)
+
+        if len(opciones) <= hueco:
+            return self._menu_pagina(titulo, opciones + fijas, pie)
+
+        # Al paginar hay que reservar sitio para S y A, que ocupan linea
+        # igual que cualquier otra opcion.
+        por_pagina = max(1, hueco - 2)
+        paginas = [opciones[i:i + por_pagina]
+                   for i in range(0, len(opciones), por_pagina)]
+        actual = 0
+
+        while True:
+            navegacion = []
+            if actual < len(paginas) - 1:
+                navegacion.append(("S", "Siguiente pagina"))
+            if actual > 0:
+                navegacion.append(("A", "Pagina anterior"))
+
+            pie_pagina = f"Pagina {actual + 1} de {len(paginas)}"
+            if pie:
+                pie_pagina = f"{pie}  ({pie_pagina})"
+
+            sel = self._menu_pagina(
+                titulo, list(paginas[actual]) + navegacion + fijas, pie_pagina)
+
+            if sel == "S" and actual < len(paginas) - 1:
+                actual += 1
+            elif sel == "A" and actual > 0:
+                actual -= 1
+            else:
+                return sel
+
+    def _menu_pagina(self, titulo: str, opciones, pie: str = None) -> str:
+        """Una sola pantalla de menu. La paginacion la pone menu()."""
         claves = {c.upper() for c, _ in opciones}
         lineas = [f"  {c}. {etiqueta}" for c, etiqueta in opciones]
 
