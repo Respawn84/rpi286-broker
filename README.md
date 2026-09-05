@@ -62,7 +62,8 @@ sigue con sus 9600 y su envio frenado, sin tocar.
 | `emojis.py`    | Tabla de emoji -> CP437, para mantener a mano              |
 | `apps.py`      | Aplicaciones locales de la Raspberry                       |
 | `actualizar.py`| git pull desde el menu Configuracion (opcion 8)            |
-| `config.py`    | Toda la configuracion: puerto, ciudad, valores, modelo     |
+| `config.py`    | Configuracion por defecto: puerto, ciudad, valores, modelo |
+| `api.env`      | Claves y lo que cambia de una maquina a otra (sin git)     |
 | `simulador.py` | Prueba el menu en la consola, sin 286 ni cable             |
 | `broker_v1.py` | Version anterior (eco directo a la API), intacta           |
 
@@ -80,12 +81,39 @@ Para probar sin el 286 (no necesita pyserial ni api.env):
 python3 simulador.py
 ```
 
+### Que va en `api.env` y que en `config.py`
+
+**Regla: lo que cambie de una maquina a otra o sea personal, a
+`api.env`.** Ese fichero esta en `.gitignore`; `config.py` no, y
+editarlo en la Raspberry deja el repo sucio, con lo que el `git pull`
+de "Actualizar Broker" se planta y el 286 se queda sin poder
+actualizarse solo.
+
+Claves que reconoce `api.env`, todas opcionales menos la primera:
+
+| Clave | Para que | Por defecto |
+|-------|----------|-------------|
+| `ANTHROPIC_API_KEY` | La clave de Claude | (obligatoria) |
+| `PORT` | Puerto serie del conversor USB | `/dev/ttyUSB0` |
+| `CIUDAD` / `PAIS` | Prevision del tiempo (opcion 3) | `Madrid` / `Espana` |
+| `TELEGRAM_TOKEN` | Bot de Telegram (opcion 7) | sin Telegram |
+| `TELEGRAM_CHATS` | Conversaciones fijadas | lista vacia |
+
+Lo demas (ritmo del cable, ancho de pantalla, lista de valores de
+bolsa, modelo de IA) sigue en `config.py`: son decisiones del
+proyecto, iguales en cualquier maquina. Si algun dia quieres
+personalizar una de ellas en la Pi, sacala a `api.env` con
+`leer_env()` en vez de editarla ahi.
+
+Si cambias `PORT`, vuelve a pasar `sudo ./instalar_servicio.sh`: el
+nombre del aparato va escrito dentro de la unidad de systemd.
+
 ## El menu
 
 ```
 1. Noticias Economicas          prompt + busqueda web
 2. Noticias Politicas           prompt + busqueda web
-3. Prevision del tiempo         ciudad de config.py u otra
+3. Prevision del tiempo         ciudad de api.env u otra
 4. Cotizaciones                 precios via API, sin pasar por la IA
 5. Aplicaciones                 submenu, todo local en la Pi
 6. Chat con Claude              el comportamiento del broker v1
@@ -150,8 +178,20 @@ Puesta en marcha:
    conversacion, tiene que hablarle alguien primero.
 4. En el 286, `Telegram -> Ver chats que han escrito al bot`: sale el
    `chat_id` de quien te ha escrito.
-5. Copia ese numero en `TELEGRAM_CHATS`, en `config.py`, con el nombre
-   que quieras que salga en la lista. Los grupos llevan el id negativo.
+5. Copia ese numero en `api.env` (no en `config.py`), en una linea
+   `TELEGRAM_CHATS`. Los grupos llevan el id negativo:
+
+```
+TELEGRAM_CHATS=-1001234567890:Los colegas;123456789:Movil de Daniel
+```
+
+Las conversaciones van en `api.env` y no en `config.py` por dos
+motivos: son datos personales que no pintan nada en un repositorio
+publico, y sobre todo porque **`config.py` esta versionado**. Editarlo
+en la Raspberry dejaba el repo sucio y el `git pull` de "Actualizar
+Broker" se plantaba con *Your local changes would be overwritten by
+merge*, que es justo romper el flujo de actualizacion desde el 286.
+Regla general: lo que cambie de una maquina a otra, a `api.env`.
 
 Como funciona por dentro:
 

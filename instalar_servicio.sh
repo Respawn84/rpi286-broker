@@ -51,9 +51,13 @@ if [[ -z "$PYTHON" ]]; then
     exit 1
 fi
 
-# El puerto se lee de config.py para que plantilla y broker no puedan
-# quedar descuadrados si algun dia se cambia el adaptador.
-PUERTO="$(sed -n "s/^PORT[[:space:]]*=[[:space:]]*[\"']\([^\"']*\).*/\1/p" "$DIR/config.py" | head -n1)"
+# El puerto se le pregunta al propio config.py para que la plantilla y
+# el broker no puedan quedar descuadrados. Se hace importandolo con
+# Python y no leyendolo con sed porque PORT ya no es un literal: sale
+# de api.env si esta puesto ahi, y un sed no se entera de eso.
+# config.py solo importa libreria estandar, asi que esto no necesita
+# tener instaladas las dependencias del broker.
+PUERTO="$("$PYTHON" -c "import sys; sys.path.insert(0, '$DIR'); import config; print(config.PORT)" 2>/dev/null)"
 PUERTO="${PUERTO:-/dev/ttyUSB0}"
 
 # Nombre de la unidad .device que corresponde a ese /dev/... Por ejemplo

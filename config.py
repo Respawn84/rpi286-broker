@@ -7,20 +7,63 @@ modelo de IA y los datos personales que usan las opciones del menu
 (ciudad para el tiempo, valores a seguir en bolsa, etc.).
 """
 
+import sys
 from pathlib import Path
 
 BASE_DIR = Path(__file__).parent
 
 # --------------------------------------------------------------------------
+# Lo que cambia de una maquina a otra: api.env
+# --------------------------------------------------------------------------
+#
+# Regla del proyecto: lo que dependa de la maquina o sea personal va en
+# api.env, que NO esta en git. config.py si esta versionado, asi que
+# editarlo en la Raspberry deja el repo sucio y el "Actualizar Broker"
+# del 286 se planta con "Your local changes would be overwritten by
+# merge", que es justo romper el flujo que ese menu venia a resolver.
+#
+# Lo de aqui abajo son los valores POR DEFECTO. Para cambiar uno en una
+# maquina concreta, se pone la clave en su api.env y listo.
+
+ENV_FILE = BASE_DIR / "api.env"
+
+
+def leer_env(clave: str, defecto: str = "") -> str:
+    """
+    Lee una clave de api.env (formato CLAVE=valor, # para comentarios).
+
+    ia.py tiene su propio lector porque sin la clave de Claude no hay
+    broker que valga y sale con error. Este es el lector blando, para
+    lo opcional: si no esta la clave, se devuelve el valor por defecto.
+    """
+    if not ENV_FILE.exists():
+        return defecto
+
+    for linea in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        linea = linea.strip()
+        if not linea or linea.startswith("#") or "=" not in linea:
+            continue
+        nombre, _, valor = linea.partition("=")
+        if nombre.strip() == clave:
+            return valor.strip().strip('"').strip("'")
+    return defecto
+
+
+# --------------------------------------------------------------------------
 # Enlace serie con el 286
 # --------------------------------------------------------------------------
 
-PORT = "/dev/ttyUSB0"
-# Tiene que coincidir con BAUDIOS en chat.c del 286. Divisores exactos
-# de la UART (115200/n): 9600 (n=12), 28800 (n=4), 38400 (n=3), 57600
-# (n=2). Si en el 286 sale basura en pantalla, lo primero que hay que
-# mirar es que los dos numeros sean el mismo.
+# El conversor USB-serie no siempre cae en el mismo /dev/, y en otra
+# maquina puede ser ttyUSB1 o un /dev/tty.usbserial del Mac.
+PORT = leer_env("PORT", "/dev/ttyUSB0")
+
+# La velocidad NO va en api.env a proposito: no es una preferencia de
+# maquina, es parte del protocolo. Tiene que coincidir con BAUDIOS en
+# chat.c del 286, y si los dos numeros no son el mismo no hay
+# configuracion que arregle nada, sale basura en pantalla.
 #
+# Divisores exactos de la UART (115200/n): 9600 (n=12), 14400 (n=8),
+# 28800 (n=4), 38400 (n=3), 57600 (n=2).
 #
 # Nota sobre 28800: no es una velocidad estandar de termios, asi que en
 # Linux pyserial la pide por el camino de baudrate a medida (TCSETS2).
@@ -118,39 +161,21 @@ CHAT_CORTAS_VALIDAS = {
 # API de Claude
 # --------------------------------------------------------------------------
 
-ENV_FILE = BASE_DIR / "api.env"
+# La clave (ANTHROPIC_API_KEY) tambien esta en ENV_FILE, arriba; la
+# lee ia.py con su propio lector.
 MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 1200
-
-
-def leer_env(clave: str, defecto: str = "") -> str:
-    """
-    Lee una clave de api.env (formato CLAVE=valor, # para comentarios).
-
-    ia.py tiene su propio lector porque sin la clave de Claude no hay
-    broker que valga y sale con error. Este es el lector blando, para
-    lo opcional: si no esta la clave, se devuelve el valor por defecto
-    y la seccion que la necesite ya avisara.
-    """
-    if not ENV_FILE.exists():
-        return defecto
-
-    for linea in ENV_FILE.read_text(encoding="utf-8").splitlines():
-        linea = linea.strip()
-        if not linea or linea.startswith("#") or "=" not in linea:
-            continue
-        nombre, _, valor = linea.partition("=")
-        if nombre.strip() == clave:
-            return valor.strip().strip('"').strip("'")
-    return defecto
 
 # --------------------------------------------------------------------------
 # Datos personales de las secciones del menu
 # --------------------------------------------------------------------------
 
-# Opcion 3 - Prevision del tiempo
-CIUDAD = "Madrid"
-PAIS = "Espana"
+# Opcion 3 - Prevision del tiempo. En api.env por si el 286 cambia de
+# casa. PAIS va con CIUDAD porque se usan juntos ("Madrid, Espana") y
+# separarlos solo serviria para pedir el tiempo de la ciudad
+# equivocada.
+CIUDAD = leer_env("CIUDAD", "Madrid")
+PAIS = leer_env("PAIS", "Espana")
 
 # Opcion 4 - Cotizaciones. Pares (simbolo de Yahoo, nombre que sale en
 # la tabla del 286). El simbolo es el que usa finance.yahoo.com: los
@@ -206,14 +231,43 @@ MAX_NOTAS = 100
 # Telegram
 # --------------------------------------------------------------------------
 
-# Conversaciones fijadas: pares (chat_id, nombre que sale en la lista).
-# El chat_id lo da el propio broker: escribe al bot desde el movil y
-# entra en Telegram -> "Ver chats que han escrito al bot"; ahi sale el
-# numero para pegarlo aqui. Los grupos llevan el id en negativo.
-TELEGRAM_CHATS = [
-    # (123456789, "Movil de Daniel"),
-    # (-100123456789, "Familia"),
-]
+# Las conversaciones fijadas NO se ponen aqui: van en api.env, que no
+# esta en git. Dos motivos, y el segundo es el importante:
+#
+#   - los chat_id son datos personales y no pintan nada en un
+#     repositorio publico;
+#   - config.py si esta versionado, asi que editarlo en la Raspberry
+#     dejaba el repo sucio y el "Actualizar Broker" del 286 se plantaba
+#     con "Your local changes would be overwritten by merge".
+#
+# El formato en api.env es una sola linea, con las conversaciones
+# separadas por ; y el nombre detras del id, separado por dos puntos:
+#
+#   TELEGRAM_CHATS=-1001234567890:Los colegas;123456789:Movil de Daniel
+#
+# Los grupos llevan el id en negativo. El id lo da el propio broker:
+# Telegram -> "Ver chats que han escrito al bot".
+
+
+def _leer_chats() -> list:
+    chats = []
+    for trozo in leer_env("TELEGRAM_CHATS").split(";"):
+        trozo = trozo.strip()
+        if not trozo:
+            continue
+        ident, _, nombre = trozo.partition(":")
+        ident = ident.strip()
+        try:
+            chats.append((int(ident), nombre.strip() or ident))
+        except ValueError:
+            # Una entrada mal escrita no deja sin Telegram a las demas;
+            # se avisa por el journal y se sigue.
+            print(f"[config] TELEGRAM_CHATS: no entiendo '{trozo}', lo salto",
+                  file=sys.stderr)
+    return chats
+
+
+TELEGRAM_CHATS = _leer_chats()
 # Cada cuanto se le pregunta a Telegram si hay respuesta, en segundos,
 # mientras estas dentro de una conversacion. Bajarlo mucho no gana
 # nada: el 286 tarda mas en pintar el mensaje que la Pi en pedirlo.

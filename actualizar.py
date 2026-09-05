@@ -93,9 +93,15 @@ def pull() -> tuple:
     mejor que git se plante y avise a que se monte un merge a ciegas
     que nadie va a poder resolver desde el 286.
     """
-    if _git("status", "--porcelain", timeout=15):
+    sucio = _git("status", "--porcelain", timeout=15)
+    if sucio:
+        # Se dice QUE ficheros son: desde el 286 no hay forma de mirarlo
+        # y, sin eso, el aviso no sirve de nada. El caso tipico era
+        # config.py editado a mano en la Pi; por eso lo que cambia de
+        # una maquina a otra vive ahora en api.env, que no esta en git.
+        ficheros = ", ".join(linea[3:] for linea in sucio.splitlines()[:5])
         raise GitError(
-            "hay cambios locales sin guardar en la Raspberry.\n"
+            f"hay cambios locales en la Raspberry: {ficheros}.\n"
             "Entra por SSH y resuelvelo (git status) antes de actualizar."
         )
 
