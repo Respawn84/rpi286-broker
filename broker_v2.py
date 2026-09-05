@@ -38,6 +38,7 @@ import noticias
 import prompts
 import telegrama
 import terminal
+import tiempo
 from terminal import Terminal
 
 # Las opciones se renumeran al quitar una: dejar un hueco en el 2 seria
@@ -189,24 +190,85 @@ def seccion_noticias(term):
         _grupo(term, "NOTICIAS", gs[int(sel) - 1])
 
 
-def seccion_tiempo(term):
-    """El tiempo de la ciudad por defecto, o de otra si la piden."""
-    sel = term.menu("PREVISION DEL TIEMPO", [
-        ("1", f"{config.CIUDAD} (por defecto)"),
-        ("2", "Otra ciudad"),
-        ("0", "Volver"),
-    ])
-    if sel == "0":
+# --------------------------------------------------------------------------
+# Prevision del tiempo (opcion 2): AEMET, tampoco pasa por la IA
+# --------------------------------------------------------------------------
+
+def _mostrar_prevision(term, municipio):
+    """Baja el XML de AEMET de un municipio y pinta la semana."""
+    term.aviso(f"Consultando AEMET para {municipio['nombre']}...")
+    try:
+        datos = tiempo.prevision(municipio["codigo"])
+    except tiempo.TiempoError as e:
+        term.print(f"No he podido consultar la prevision: {e}")
+        term.pausa()
         return
 
-    lugar = None
-    if sel == "2":
-        lugar = term.ask("Ciudad (sin acentos):")
-        if not lugar:
+    term.titulo(f"{datos['nombre']} ({datos['provincia']})", max_lineas=2)
+    term.print("")
+    for linea in tiempo.tabla(datos):
+        term.print(linea)
+    term.print("")
+    term.print_wrapped(tiempo.pie(datos))
+    term.pausa()
+
+
+def _elegir_municipio(term, consulta):
+    """
+    Busca en la tabla de la AEAT y deja elegir cuando hay varios.
+
+    Hay 8.086 municipios con prevision y los nombres se repiten mucho
+    entre provincias, asi que casi nunca se puede dar por hecho cual
+    quiere el usuario. Si solo hay uno se va directo; si hay varios sale
+    la lista con la provincia al lado, que es lo unico que los distingue.
+    """
+    try:
+        encontrados = tiempo.buscar(consulta)
+    except tiempo.TiempoError as e:
+        term.print(f"No he podido buscar el municipio: {e}")
+        term.pausa()
+        return None
+
+    if not encontrados:
+        term.print(f"No encuentro ningun municipio que se llame '{consulta}'.")
+        term.print("Prueba con menos letras o sin el articulo.")
+        term.pausa()
+        return None
+
+    if len(encontrados) == 1:
+        return encontrados[0]
+
+    opciones = [(str(i), f"{m['nombre']}  ({m['provincia']})")
+                for i, m in enumerate(encontrados, start=1)]
+    sel = term.menu(terminal.ruta("TIEMPO", f"'{consulta}'"), opciones,
+                    f"{len(encontrados)} municipios",
+                    [("0", "Volver")])
+    if sel == "0":
+        return None
+    return encontrados[int(sel) - 1]
+
+
+def seccion_tiempo(term):
+    """El tiempo del municipio por defecto, o de otro si lo piden."""
+    while True:
+        sel = term.menu("PREVISION DEL TIEMPO", [
+            ("1", f"{config.CIUDAD} (por defecto)"),
+            ("2", "Buscar otro municipio"),
+            ("0", "Volver al menu principal"),
+        ])
+        if sel == "0":
             return
 
-    seccion_ia(term, "Prevision del tiempo", prompts.tiempo(lugar),
-               "Consultando la prevision, espera unos segundos...")
+        if sel == "1":
+            consulta = config.CIUDAD
+        else:
+            consulta = term.ask("Municipio (sin acentos):")
+            if not consulta:
+                continue
+
+        municipio = _elegir_municipio(term, consulta)
+        if municipio is not None:
+            _mostrar_prevision(term, municipio)
 
 
 def _cuadro_cotizaciones(term):

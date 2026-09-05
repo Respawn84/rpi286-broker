@@ -56,7 +56,8 @@ sigue con sus 9600 y su envio frenado, sin tocar.
 | `broker_v2.py` | Bucle principal, menu y secciones                          |
 | `terminal.py`  | Capa de pantalla/teclado sobre el puerto serie             |
 | `ia.py`        | Cliente de la API de Claude (consultas sueltas y chat)     |
-| `prompts.py`   | Prompts de cada seccion del menu                           |
+| `prompts.py`   | Prompts de las secciones que si usan la IA                 |
+| `tiempo.py`    | Prevision de AEMET por municipio (opcion 2)                |
 | `noticias.py`  | Titulares por RSS de Europa Press (opcion 1)               |
 | `mercados.py`  | Cotizaciones via API publica (Yahoo Finance)               |
 | `telegrama.py` | Cliente de Telegram (Bot API), opcion 6                    |
@@ -96,7 +97,7 @@ Claves que reconoce `api.env`, todas opcionales menos la primera:
 |-------|----------|-------------|
 | `ANTHROPIC_API_KEY` | La clave de Claude | (obligatoria) |
 | `PORT` | Puerto serie del conversor USB | `/dev/ttyUSB0` |
-| `CIUDAD` / `PAIS` | Prevision del tiempo (opcion 2) | `Madrid` / `Espana` |
+| `CIUDAD` | Municipio por defecto del tiempo (opcion 2) | `Madrid` |
 | `TELEGRAM_TOKEN` | Bot de Telegram (opcion 6) | sin Telegram |
 | `TELEGRAM_CHATS` | Conversaciones fijadas | lista vacia |
 
@@ -113,7 +114,7 @@ nombre del aparato va escrito dentro de la unidad de systemd.
 
 ```
 1. Noticias                     RSS de Europa Press, sin pasar por la IA
-2. Prevision del tiempo         ciudad de api.env u otra
+2. Prevision del tiempo         AEMET, 7 dias, cualquier municipio
 3. Cotizaciones                 precios via API, sin pasar por la IA
 4. Aplicaciones                 submenu, todo local en la Pi
 5. Chat con Claude              el comportamiento del broker v1
@@ -190,6 +191,65 @@ CP437. Los acentos y la ene no se tocan: CP437 los tiene.
 
 El indice de canales se cachea un dia y cada feed cinco minutos, para
 que moverse por los menus no sea una descarga por pantalla.
+
+## Prevision del tiempo (opcion 2): AEMET, tampoco por la IA
+
+AEMET publica la prevision oficial a siete dias en XML, gratis y sin
+clave, con una URL por municipio:
+
+```
+https://www.aemet.es/xml/municipios/localidad_22035.xml   -> Aren
+```
+
+Ese numero es el codigo INE de cinco digitos (dos de provincia, tres de
+municipio). Sale de la tabla de municipios de la AEAT que esta en esta
+misma carpeta. El usuario escribe el nombre, [tiempo.py](tiempo.py) lo
+busca, compone la URL y pinta la semana:
+
+```
+AREN (HUESCA)
+-------------
+
+DIA        CIELO                              MIN/MAX  LLUV  VIENTO
+-------------------------------------------------------------------
+Sab 05/09  Poco nuboso                         18/38    0%  S 10
+Mie 09/09  Intervalos nubosos con lluvia       15/30   90%  flojo
+```
+
+**La columna buena de la tabla de la AEAT es la SEGUNDA.** Es la trampa
+del formato y conviene dejarla escrita:
+
+```
+22 22035 22044 AREN
+```
+
+La tercera columna es otro codigo distinto: para Aren vale `22044`, que
+en AEMET es Bailo. Coinciden en muchisimos municipios, que es justo lo
+que lo hace peligroso. Comprobado contra AEMET sobre una muestra al
+azar, la segunda acierta siempre y la tercera falla en cuanto las dos
+difieren (otro municipio, o un 404).
+
+Dos rarezas del XML de AEMET que hay que sortear:
+
+- **Declara `ISO-8859-15` pero el campo `<nombre>` va en UTF-8.** Se ve
+  en los bytes del mismo fichero: `<productor>` trae `Meteorologí a`
+  (latin-1 correcto) y `<nombre>` trae `ArÃ©n` (UTF-8 crudo). Si se
+  hace caso a la cabecera, Aren sale como "ArA©n".
+- **El dia reparte los datos de dos formas distintas.** Los cuatro
+  primeros vienen troceados en tramos (`00-24`, `12-18`...) y el de HOY
+  trae el `00-24` vacio porque la jornada ya va empezada; del quinto en
+  adelante hay un solo bloque **sin atributo `periodo`**. Filtrar solo
+  por tramo dejaba los tres ultimos dias sin cielo ni lluvia.
+
+Como hay 8.086 municipios con prevision y los nombres se repiten mucho
+entre provincias, la busqueda ensena la lista con la provincia al lado
+y se elige. Se busca sin acentos y sin el articulo: `la nava`, `nava` y
+`NAVA (LA)` llevan al mismo sitio.
+
+La tabla de municipios se actualiza dejando caer el fichero nuevo de la
+AEAT en la carpeta: `config.MUNICIPIOS_GLOB` lo busca por patron
+(`Tabla_Municipios*.txt`), no por nombre exacto, porque la AEAT le pone
+la fecha al nombre.
 
 ## Cotizaciones (opcion 3): datos de API, no de la IA
 

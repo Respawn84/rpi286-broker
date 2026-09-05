@@ -41,28 +41,6 @@ def _hoy() -> str:
     return time.strftime("%d/%m/%Y")
 
 
-def tiempo(ciudad: str = None) -> str:
-    lugar = ciudad or f"{config.CIUDAD}, {config.PAIS}"
-    return f"""Hoy es {_hoy()}. Busca en internet la prevision
-meteorologica para {lugar}.
-
-Formato exacto, sin nada mas:
-
-PREVISION PARA {lugar.upper()}
-
-AHORA: temperatura, cielo, viento, humedad.
-
-HOY: maxima y minima, resumen en una frase, probabilidad de lluvia.
-
-MANANA: maxima y minima, resumen en una frase.
-
-PROXIMOS DIAS:
-Dia   Max  Min  Resumen corto
-(tres dias mas, una linea cada uno, alineado en columnas)
-
-AVISOS: solo si hay alerta meteorologica activa; si no, omite esta
-linea entera."""
-
 
 def cotizaciones() -> str:
     """
@@ -110,9 +88,6 @@ de: {consulta}
 Responde en pocas lineas: precio, variacion del dia, y una frase de
 contexto si ha pasado algo destacable. Nada mas."""
 
-
-def tiempo_suelto(consulta: str) -> str:
-    return tiempo(consulta)
 
 
 def efemerides() -> str:

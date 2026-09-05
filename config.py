@@ -161,6 +161,34 @@ CHAT_CORTAS_VALIDAS = {
 }
 
 # --------------------------------------------------------------------------
+# Opcion 2 - Prevision del tiempo (AEMET)
+# --------------------------------------------------------------------------
+
+# La tabla de municipios de la AEAT, de donde sale el codigo INE que
+# pide la URL de AEMET. Se busca por patron y no por nombre fijo para
+# que baste con dejar caer un fichero mas nuevo en la carpeta: la AEAT
+# lo publica con la fecha en el nombre ("Tabla_Municipios 30 03
+# 2026.txt") y ese nombre cambia en cada revision. Si hay varios se
+# coge el ultimo por orden alfabetico.
+MUNICIPIOS_GLOB = "Tabla_Municipios*.txt"
+
+
+def municipios_file():
+    """La tabla de municipios que haya en la carpeta, o None si no hay."""
+    encontrados = sorted(BASE_DIR.glob(MUNICIPIOS_GLOB))
+    return encontrados[-1] if encontrados else None
+
+
+TIEMPO_TIMEOUT = 20
+# La prevision de AEMET se elabora unas pocas veces al dia, asi que
+# volver a entrar en la seccion no deberia costar otra descarga.
+TIEMPO_CACHE = 1800
+# Tope de municipios en la lista de resultados. Hay 8.086 con prevision
+# y busquedas como "villa" sacan cientos: mas alla de esto lo util es
+# afinar la busqueda, no seguir paginando.
+TIEMPO_MAX_RESULTADOS = 40
+
+# --------------------------------------------------------------------------
 # Opcion 1 - Noticias por RSS
 # --------------------------------------------------------------------------
 
@@ -204,12 +232,18 @@ MAX_TOKENS = 1200
 # Datos personales de las secciones del menu
 # --------------------------------------------------------------------------
 
-# Opcion 2 - Prevision del tiempo. En api.env por si el 286 cambia de
-# casa. PAIS va con CIUDAD porque se usan juntos ("Madrid, Espana") y
-# separarlos solo serviria para pedir el tiempo de la ciudad
-# equivocada.
+# Municipio que sale como opcion 1 en la prevision del tiempo. En
+# api.env por si el 286 cambia de casa.
+#
+# No es un codigo, es lo que se teclearia en el buscador: se resuelve
+# contra la tabla de municipios igual que cualquier otra busqueda. Asi
+# no hay que ir a mirar codigos INE para configurarlo, y si el nombre
+# se repite en varias provincias sale la lista para elegir, en vez de
+# quedarse callado con el municipio equivocado.
+#
+# PAIS ya no existe: solo servia para el prompt que se le mandaba a
+# Claude ("Madrid, Espana"), y AEMET es solo de Espana.
 CIUDAD = leer_env("CIUDAD", "Madrid")
-PAIS = leer_env("PAIS", "Espana")
 
 # Opcion 3 - Cotizaciones. Pares (simbolo de Yahoo, nombre que sale en
 # la tabla del 286). El simbolo es el que usa finance.yahoo.com: los
