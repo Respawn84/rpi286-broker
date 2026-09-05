@@ -102,8 +102,19 @@ def seccion_ia(term, titulo: str, prompt: str, aviso: str) -> None:
 # seccion nueva, aparece sola en el 286.
 
 def _articulo(term, art):
-    """Un titular abierto: titulo, fecha y el resumen del feed."""
-    term.titulo(art["titulo"][:config.SCREEN_WIDTH])
+    """
+    Un titular abierto: titular, fecha y el resumen del feed.
+
+    El titular se reparte en hasta cuatro lineas en vez de cortarse al
+    ancho de pantalla: los de prensa pasan casi siempre de 70 caracteres
+    y el corte se llevaba justo la parte que dice de que va la noticia.
+    Las cuatro caben de sobra porque el resumen del RSS son dos o tres
+    frases, y ademas aqui ya no se pinta el enlace.
+
+    El enlace se quito a proposito: en el 286 no hay navegador ni forma
+    de copiarlo a ningun sitio, asi que solo gastaba lineas de pantalla.
+    """
+    term.titulo(art["titulo"], max_lineas=4)
     if art["fecha"]:
         term.print(f"({art['fecha']})")
     term.print("")
@@ -112,12 +123,6 @@ def _articulo(term, art):
         term.page(art["resumen"])
     else:
         term.print("Este titular viene sin resumen en el feed.")
-
-    # El enlace no sirve para nada en el 286, pero deja apuntado donde
-    # esta la noticia entera por si se quiere leer luego en otro sitio.
-    if art["enlace"]:
-        term.print("")
-        term.print_wrapped(art["enlace"])
 
     term.pausa()
 
@@ -135,12 +140,11 @@ def _feed(term, camino, feed):
     camino = terminal.ruta(camino, feed.nombre)
 
     while True:
-        # La fecha delante: en una lista de 25 titulares del mismo dia
-        # es lo que distingue lo de hace diez minutos de lo de anoche.
-        opciones = [
-            (str(i), f"{a['fecha']}  {a['titulo']}" if a["fecha"] else a["titulo"])
-            for i, a in enumerate(arts, start=1)
-        ]
+        # Sin fecha ni hora: ocupaban trece caracteres de los pocos que
+        # hay en la linea del menu y hacian que casi todos los titulares
+        # se cortaran. La fecha sigue estando al abrir la noticia, que es
+        # donde de verdad se mira.
+        opciones = [(str(i), a["titulo"]) for i, a in enumerate(arts, start=1)]
         volver = [("0", "Volver a los canales")]
 
         sel = term.menu(camino, opciones, f"{len(arts)} titulares", volver)

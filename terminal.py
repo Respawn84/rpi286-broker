@@ -72,6 +72,21 @@ def sanitize_bytes(raw: bytes) -> bytes:
     return bytes(b for b in raw if b == 0x09 or 0x20 <= b <= 0x7E)
 
 
+def _recortar(texto: str, ancho: int) -> str:
+    """
+    Corta a 'ancho' avisando de que ha cortado.
+
+    Un titular cortado en seco parece el titular entero y se entiende
+    mal ("El Gobierno aprueba la subida de"). Con los puntos suspensivos
+    al menos se sabe que falta texto y que hay que abrir la noticia.
+    """
+    if len(texto) <= ancho:
+        return texto
+    if ancho <= 3:
+        return texto[:ancho]
+    return texto[:ancho - 3].rstrip() + "..."
+
+
 def ruta(*partes) -> str:
     """
     Migas de pan para el titulo de la caja: "NOTICIAS > Autonomica > Madrid".
@@ -293,7 +308,12 @@ class Terminal:
         self.write_line(CONECTOR_I + BORDE_H * interior + CONECTOR_D)
 
         for linea in lineas:
-            self.write_line(BORDE_V + f" {linea}"[:interior].ljust(interior) + BORDE_V)
+            # interior - 1 y no interior: deja un espacio antes del borde
+            # derecho. Con titulares de prensa casi todas las lineas
+            # llegan al tope, y sin ese margen el texto queda pegado a
+            # la pared del marco y se lee peor.
+            recortada = _recortar(f" {linea}", interior - 1)
+            self.write_line(BORDE_V + recortada.ljust(interior) + BORDE_V)
 
         if pie is not None:
             self.write_line(CONECTOR_I + BORDE_H * interior + CONECTOR_D)
@@ -301,7 +321,7 @@ class Terminal:
 
         self.write_line(ESQ_II + BORDE_H * interior + ESQ_ID)
 
-    def titulo(self, texto: str) -> None:
+    def titulo(self, texto: str, max_lineas: int = 1) -> None:
         """
         Cabecera ligera para las pantallas de resultado.
 
@@ -312,6 +332,11 @@ class Terminal:
         en espanol como "Reforma de la Gran Via" se convertiria en
         "GRAN V?A" al codificar. Cuando pasa eso se deja tal cual vino,
         que se lee peor de cabecera pero se lee.
+
+        'max_lineas' permite que la cabecera ocupe varias lineas en vez
+        de cortarse: un titular de prensa pasa casi siempre del ancho de
+        pantalla, y cortarlo por la mitad se lleva justo la parte que
+        dice de que va la noticia.
         """
         encabezado = texto.upper()
         try:
@@ -319,9 +344,16 @@ class Terminal:
         except UnicodeEncodeError:
             encabezado = texto
 
+        lineas = textwrap.wrap(encabezado, width=config.SCREEN_WIDTH) or [""]
+        if len(lineas) > max_lineas:
+            lineas = lineas[:max_lineas]
+            lineas[-1] = _recortar(lineas[-1] + " ...", config.SCREEN_WIDTH)
+
         self.write_line("")
-        self.write_line(encabezado)
-        self.write_line("-" * min(len(encabezado), config.SCREEN_WIDTH))
+        for linea in lineas:
+            self.write_line(linea)
+        self.write_line("-" * min(max(len(l) for l in lineas),
+                                  config.SCREEN_WIDTH))
 
     def aviso(self, texto: str) -> None:
         self.write_line(f"[{texto}]")

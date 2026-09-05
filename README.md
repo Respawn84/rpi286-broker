@@ -153,16 +153,35 @@ La navegacion son tres niveles, y la cabecera del marco lleva las migas
 de pan para saber siempre donde estas:
 
 ```
-╔════════════════════════════════════════════════════════════╗
-║ NOTICIAS > Actualidad Autonomica > Madrid                  ║
-╠════════════════════════════════════════════════════════════╣
-║   1. 05/09 18:42  El Ayuntamiento aprueba...               ║
+╔════════════════════════════════════════════════════════════════════╗
+║ NOTICIAS > Actualidad Autonomica > Islas Canarias                  ║
+╠════════════════════════════════════════════════════════════════════╣
+║   1. Dominguez (PP) reclama al Gobierno "cerrar las fronteras" ... ║
+║   2. Detienen a un padre y a su hijo por gestionar un punto de ... ║
+║   0. Volver a los canales                                          ║
+╠════════════════════════════════════════════════════════════════════╣
+║ 10 titulares                                                       ║
+╚════════════════════════════════════════════════════════════════════╝
 ```
 
 Grupo -> canal -> titular -> el resumen del feed, paginado. Como el
-grupo autonomico tiene 17 canales y en la ventana de `CHAT.EXE` solo
+grupo autonomico tiene 18 canales y en la ventana de `CHAT.EXE` solo
 caben unas doce lineas de menu, los menus largos se parten en paginas y
-se navega con `S` (siguiente) y `A` (anterior).
+se navega con `S` (siguiente) y `A` (anterior). El "0. Volver" sale en
+todas las paginas, no solo en la ultima.
+
+Detalles de como se reparte el sitio, que en 70 columnas es lo que hay:
+
+- **En la lista no salen fecha ni hora.** Ocupaban trece caracteres de
+  los pocos que hay y hacian que se cortara casi cualquier titular. La
+  fecha se ve al abrir la noticia, que es donde de verdad se mira.
+- **Lo que se corta acaba en `...`**, para que un titular recortado no
+  parezca el titular entero.
+- **Al abrir una noticia el titular ocupa hasta cuatro lineas** en vez
+  de cortarse: los de prensa pasan casi siempre de 70 caracteres y el
+  corte se llevaba justo la parte que dice de que va la cosa.
+- **No se pinta el enlace.** En el 286 no hay navegador ni forma de
+  copiarlo a ningun sitio; solo gastaba lineas de pantalla.
 
 Del RSS se quita el HTML y las entidades (`&amp;`, `&#8220;`) y se pasa
 por [emojis.py](emojis.py), que es quien sabe cambiar las comillas
