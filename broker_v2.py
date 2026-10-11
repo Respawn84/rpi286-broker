@@ -26,6 +26,7 @@ Uso:
     python3 broker_v2.py
 """
 
+
 import sys
 import time
 
@@ -39,6 +40,7 @@ import prompts
 import telegrama
 import terminal
 import tiempo
+import system
 from terminal import Terminal
 
 # Las opciones se renumeran al quitar una: dejar un hueco en el 2 seria
@@ -660,6 +662,7 @@ def seccion_configuracion(term):
         sel = term.menu("CONFIGURACION", [
             ("1", "Actualizar Broker (git pull)"),
             ("2", "Ver version instalada"),
+            ("3", "Forzar actualizar hora en la Raspberry"),
             ("0", "Volver al menu principal"),
         ])
         if sel == "0":
@@ -668,6 +671,16 @@ def seccion_configuracion(term):
             seccion_actualizar(term)
         elif sel == "2":
             _mostrar_version(term)
+            term.pausa()
+        elif sel == "3":
+            term.aviso("Actualizando hora desde la red...")
+            try:
+                salida =system.actualizar_hora()
+                term.print(f"Salida del comando: {salida}")
+            except system.HoraError as e:
+                term.print(f"No he podido actualizar la hora: {e}")
+            else:
+                term.print("Hora actualizada correctamente.")
             term.pausa()
 
 
