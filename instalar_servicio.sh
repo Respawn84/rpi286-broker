@@ -17,6 +17,12 @@ PLANTILLA="$DIR/systemd/broker286.service"
 DESTINO="/etc/systemd/system/broker286.service"
 SERVICIO="broker286.service"
 
+# Segunda unidad, independiente del broker: el reloj. Ver la seccion
+# del README sobre certificados; en una placa sin pila de RTC esto es
+# lo que evita que un arranque en 1970 deje el cacharro incomunicado.
+HORA_SERVICIO="poner-hora.service"
+HORA_TIMER="poner-hora.timer"
+
 rojo()  { printf '\033[31m%s\033[0m\n' "$*"; }
 verde() { printf '\033[32m%s\033[0m\n' "$*"; }
 info()  { printf '  %s\n' "$*"; }
@@ -30,9 +36,13 @@ fi
 
 if [[ "${1:-}" == "--desinstalar" ]]; then
     systemctl disable --now "$SERVICIO" 2>/dev/null || true
-    rm -f "$DESTINO"
+    systemctl disable --now "$HORA_TIMER" 2>/dev/null || true
+    rm -f "$DESTINO" \
+          "/etc/systemd/system/$HORA_SERVICIO" \
+          "/etc/systemd/system/$HORA_TIMER"
     systemctl daemon-reload
-    verde "Servicio desinstalado. El broker ya no arranca solo."
+    verde "Servicios desinstalados. El broker ya no arranca solo"
+    verde "y el reloj ya no se pone en hora por su cuenta."
     exit 0
 fi
 
@@ -92,13 +102,50 @@ if ! id -nG "$USUARIO" | tr ' ' '\n' | grep -qx dialout; then
     info "servicio ya lo coge por SupplementaryGroups."
 fi
 
-# El puerto serie integrado de la Pi lo ocupa por defecto una consola de
-# login; el conversor USB (ttyUSB*) no tiene ese problema.
-if [[ "$PUERTO" == *ttyAMA* || "$PUERTO" == *serial0* ]]; then
-    rojo "AVISO: $PUERTO es el puerto serie integrado de la Pi."
+# El puerto serie integrado de la placa lo ocupa por defecto una
+# consola de login; el conversor USB (ttyUSB*) no tiene ese problema.
+if [[ "$PUERTO" == *ttyAMA* || "$PUERTO" == *serial0* || "$PUERTO" == *ttyS[0-9]* ]]; then
+    DISPOSITIVO="$(basename "$PUERTO")"
+    rojo "AVISO: $PUERTO es el puerto serie integrado de la placa."
     info "Desactiva antes la consola serie o se pelearan por el puerto:"
-    info "  sudo systemctl disable --now serial-getty@ttyAMA0.service"
-    info "  y quita 'console=serial0,115200' de /boot/firmware/cmdline.txt"
+    info "  sudo systemctl disable --now serial-getty@$DISPOSITIVO.service"
+    info "Y quita la consola de los parametros de arranque:"
+    if [[ -f /boot/armbianEnv.txt ]]; then
+        info "  en Armbian, la linea console= de /boot/armbianEnv.txt"
+    elif [[ -f /boot/firmware/cmdline.txt ]]; then
+        info "  en Raspberry Pi OS, 'console=serial0,115200' de"
+        info "  /boot/firmware/cmdline.txt"
+    else
+        info "  (no encuentro ni /boot/armbianEnv.txt ni"
+        info "  /boot/firmware/cmdline.txt; mira la configuracion de"
+        info "  arranque de tu distribucion)"
+    fi
+fi
+
+# Brltty (lector braille) reclama varios conversores USB-serie, el
+# PL2303 entre ellos, y hace que /dev/ttyUSB0 aparezca y desaparezca a
+# los pocos segundos. Viene instalado en bastantes imagenes de escritorio.
+if [[ "$PUERTO" == *ttyUSB* ]] && dpkg -s brltty >/dev/null 2>&1; then
+    rojo "AVISO: brltty esta instalado y suele robar los conversores USB-serie."
+    info "Si $PUERTO aparece y se va solo, quitalo:  sudo apt purge -y brltty"
+fi
+
+# ModemManager sondea los puertos serie al enchufarlos, y esos sondeos
+# llegan al 286 como basura en pantalla.
+if [[ "$PUERTO" == *ttyUSB* ]] && systemctl list-unit-files ModemManager.service >/dev/null 2>&1 \
+   && systemctl is-enabled ModemManager.service >/dev/null 2>&1; then
+    rojo "AVISO: ModemManager esta activo y sondea los puertos serie."
+    info "  sudo systemctl mask --now ModemManager"
+fi
+
+# El reloj: sin pila de RTC, una placa recien encendida puede estar en
+# 1970, y con la fecha mal falla todo lo que vaya por TLS (la API, git,
+# Telegram). Mas vale decirlo aqui que dejar que el broker arranque y
+# falle sin explicar por que.
+if [[ "$(date +%Y)" -lt 2025 ]]; then
+    rojo "AVISO: el reloj de esta placa marca $(date +%Y). Con la fecha mal"
+    rojo "no validan los certificados y no funcionara nada que use red."
+    info "Arreglalo antes de arrancar el broker:  sudo $DIR/poner_hora.sh"
 fi
 
 # ----------------------------------------------------------------- instalacion
@@ -109,8 +156,32 @@ sed -e "s|@USUARIO@|$USUARIO|g" \
     -e "s|@DEVUNIT@|$DEVUNIT|g" \
     "$PLANTILLA" > "$DESTINO"
 
+# El reloj: un oneshot y un timer que lo lanza al arrancar y cada cinco
+# minutos. Van aparte del broker a proposito; el reloj tiene que estar
+# bien aunque el broker este parado o el cable desenchufado.
+for UNIDAD in "$HORA_SERVICIO" "$HORA_TIMER"; do
+    sed -e "s|@DIR@|$DIR|g" \
+        "$DIR/systemd/$UNIDAD" > "/etc/systemd/system/$UNIDAD"
+done
+
+chmod +x "$DIR/poner_hora.sh" 2>/dev/null || true
+
 systemctl daemon-reload
 systemctl enable "$SERVICIO"
+systemctl enable --now "$HORA_TIMER"
+
+# fake-hwclock es la otra mitad del arreglo del reloj, y la que importa
+# cuando la wifi no levanta sin hora: guarda la hora al apagar y la
+# restaura al arrancar, asi la placa empieza en una fecha razonable en
+# vez de en 1970 y los certificados validan desde el primer segundo.
+if ! dpkg -s fake-hwclock >/dev/null 2>&1; then
+    echo
+    rojo "RECOMENDADO: instala fake-hwclock."
+    info "Esta placa no tiene pila de reloj, asi que cada arranque"
+    info "empieza en 1970 hasta que haya red. fake-hwclock guarda la"
+    info "hora al apagar y la restaura al arrancar:"
+    info "  sudo apt install -y fake-hwclock"
+fi
 
 if [[ -e "$PUERTO" ]]; then
     systemctl restart "$SERVICIO"
@@ -131,3 +202,8 @@ info "Ver el log en vivo:   journalctl -u $SERVICIO -f"
 info "Parar / arrancar:     sudo systemctl stop|start $SERVICIO"
 info "Tras tocar el codigo: sudo systemctl restart $SERVICIO"
 info "Quitarlo del arranque: sudo $0 --desinstalar"
+echo
+echo "Y para el reloj:"
+info "Cuando toca:          systemctl list-timers $HORA_TIMER"
+info "Que paso la ultima:   journalctl -u $HORA_SERVICIO -n 20"
+info "Ponerlo en hora ya:   sudo systemctl start $HORA_SERVICIO"

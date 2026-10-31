@@ -1,0 +1,27 @@
+# Plantilla. NO se instala tal cual: @DIR@ lo rellena
+# instalar_servicio.sh con la ruta real del broker.
+
+[Unit]
+Description=Poner el reloj en hora por HTTP (placa sin pila de RTC)
+Documentation=file://@DIR@/README.md
+
+# Hace falta red, pero NO se pone network-online.target: el caso que
+# venimos a cubrir es justo que la red tarde o venga a medias, y el
+# propio script reintenta durante el primer minuto y medio. Esperar a
+# network-online aqui solo serviria para que el servicio no arrancara
+# nunca si la wifi no acaba de levantar.
+After=network.target
+
+[Service]
+Type=oneshot
+# Corre como root a proposito (sin User=): escribir el reloj del
+# sistema necesita CAP_SYS_TIME, y aqui no hay nada mas que proteger.
+ExecStart=@DIR@/poner_hora.sh --auto
+
+# El script reintenta hasta cuatro rondas con 15 s de espera, asi que
+# en el peor caso tarda algo mas de un minuto.
+TimeoutStartSec=180
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=poner-hora

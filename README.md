@@ -64,6 +64,9 @@ sigue con sus 9600 y su envio frenado, sin tocar.
 | `emojis.py`    | Tabla de emoji -> CP437, para mantener a mano              |
 | `apps.py`      | Aplicaciones locales de la Raspberry                       |
 | `actualizar.py`| git pull desde el menu Configuracion (opcion 7)            |
+| `system.py`    | Poner el reloj en hora desde el 286 (opcion 7)             |
+| `poner_hora.sh`| Lo mismo desde la consola, para una placa recien instalada |
+| `systemd/`     | Plantillas de las unidades: broker y timer del reloj       |
 | `config.py`    | Configuracion por defecto: puerto, ciudad, valores, modelo |
 | `api.env`      | Claves y lo que cambia de una maquina a otra (sin git)     |
 | `simulador.py` | Prueba el menu en la consola, sin 286 ni cable             |
@@ -436,6 +439,165 @@ Para una seccion nueva que consulte a la IA, escribe el prompt en
 `prompts.py` y llama a `seccion_ia(term, titulo, prompt, aviso)` desde
 `broker_v2.py`.
 
+## Montarlo en una placa nueva (Armbian, Raspberry Pi OS...)
+
+Receta completa, en orden. Probada en una Orange Pi con Armbian recien
+instalado. Lo unico que no esta en git es `api.env`, asi que conviene
+tener una copia suya a mano antes de empezar.
+
+**1. El reloj, ANTES que nada.** Estas placas no tienen pila de RTC: una
+recien instalada puede estar en 1970, y con la fecha mal fallan todos
+los certificados TLS. Eso deja fuera a `apt`, a `git clone` y a las
+APIs de golpe, asi que no se arregla descargando nada:
+
+```bash
+sudo ./poner_hora.sh    # si ya has clonado; si no, el comando de abajo
+```
+
+Sin el repo todavia clonado, lo mismo en una linea (la cabecera `Date`
+de una peticion HTTP **sin cifrar**, que no necesita reloj bueno):
+
+```bash
+sudo date -s "$(curl -sI --max-time 10 http://deb.debian.org | awk -F': ' 'tolower($1)=="date"{print $2}' | tr -d '\r')" && sudo timedatectl set-ntp true
+```
+
+**2. Paquetes y zona horaria.**
+
+```bash
+sudo apt update && sudo apt install -y git python3 python3-pip python3-serial && sudo timedatectl set-timezone Europe/Madrid
+```
+
+**3. Clonar y la dependencia que no esta en apt.** `pyserial` entra con
+`python3-serial`; `anthropic` no esta empaquetado:
+
+```bash
+mkdir -p ~/286 && cd ~/286 && git clone https://github.com/Respawn84/rpi286-broker.git && pip3 install --break-system-packages anthropic
+```
+
+**4. `api.env`.** Copia la tuya, o parte del ejemplo:
+
+```bash
+cd ~/286/rpi286-broker && cp api.env.example api.env && nano api.env && chmod 600 api.env
+```
+
+**5. Comprobar antes de enchufar el 286.** Que el puerto esta y que la
+configuracion se lee:
+
+```bash
+ls -l /dev/ttyUSB* && python3 -c "import config, serial, anthropic; print(config.PORT, config.BAUDRATE, repr(config.CIUDAD), config.TELEGRAM_CHATS)"
+```
+
+Y el menu entero por consola, sin cable:
+
+```bash
+python3 simulador.py
+```
+
+**6. El servicio.**
+
+```bash
+sudo ./instalar_servicio.sh
+```
+
+### Trampas que cuestan una tarde
+
+- **`brltty` roba los conversores USB-serie**, el PL2303 entre ellos: si
+  `/dev/ttyUSB0` aparece y desaparece a los pocos segundos, es el.
+  `sudo apt purge -y brltty`. El instalador avisa si lo encuentra.
+- **ModemManager** sondea los puertos serie al enchufarlos y esos
+  sondeos salen como basura en la pantalla del 286:
+  `sudo systemctl mask --now ModemManager`.
+- **Los 28800 baudios no son estandar.** El PL2303 los tiene en su tabla
+  nativa, pero otro conversor (CH341, por ejemplo) puede redondearlos y
+  sacar basura. Si cambias de chip, pasa a 38400 en `config.py` **y** en
+  `chat.c` del 286: los dos numeros tienen que ser el mismo.
+- **No uses el UART de los pines** salvo que te apetezca pelear: tanto
+  Armbian como Raspberry Pi OS arrancan una consola de login en el
+  puerto integrado. El instalador avisa y da el comando para quitarla.
+
+## El reloj y los certificados
+
+El fallo mas desconcertante de todo el montaje: si la placa arranca con
+la fecha mal, TODO lo que use TLS falla con *certificate is not yet
+valid* y parece que no hay red. Afecta a la API de Claude, a Telegram, a
+las cotizaciones y al propio `git pull` de "Actualizar Broker".
+
+Y hay un caso peor, que es el que obliga a tomarselo en serio: con la
+fecha mal, **a veces no levanta ni la wifi**. Y si no hay wifi, el
+truco de leer la hora por HTTP no sirve de nada, porque necesita red.
+De ahi que el arreglo sean tres capas, y que la primera no dependa de
+la red:
+
+**1. `fake-hwclock`, para no arrancar en 1970.** Guarda la hora en un
+fichero al apagar y la restaura al arrancar, asi la placa empieza en
+"cuando se apago" en vez de en el epoch. No es exacto, pero basta para
+que los certificados validen y la wifi levante:
+
+```bash
+sudo apt install -y fake-hwclock
+```
+
+Es la pieza que falta en casi todas las imagenes de Armbian para placas
+sin RTC, y el instalador avisa si no la encuentra.
+
+**2. El timer, para corregir en cuanto haya red.**
+`systemd/poner-hora.timer` lanza `poner_hora.sh --auto` **20 segundos
+despues de arrancar y luego cada 5 minutos**. Lo instala el propio
+`instalar_servicio.sh`:
+
+```bash
+systemctl list-timers poner-hora.timer      # cuando toca la siguiente
+journalctl -u poner-hora.service -n 20      # que paso en la ultima
+sudo systemctl start poner-hora.service     # ponerlo en hora ahora
+```
+
+Tres detalles del diseno que importan:
+
+- Los disparos son **monotonicos** (`OnBootSec` / `OnUnitActiveSec`), no
+  `OnCalendar`: un timer de calendario con el reloj en 1970 se comporta
+  de forma rarisima, y aqui el reloj mal es la situacion de partida.
+- La unidad **no espera a `network-online.target`**, porque el caso que
+  cubre es justo que la red tarde o venga a medias. En vez de eso el
+  script reintenta cuatro rondas con 15 s de espera, cubriendo el
+  primer minuto y medio de arranque; si aun asi no hay red, ya saltara
+  el disparo de los 5 minutos.
+- En modo `--auto` **no toca el reloj si ya esta sincronizado por NTP**,
+  ni si el desvio es menor de 5 segundos. Asi no se pelea con
+  `systemd-timesyncd`, que es mas preciso que una cabecera HTTP (un
+  segundo de resolucion). Cuando acierta, deja la hora tambien en
+  `fake-hwclock` para el siguiente arranque.
+
+**3. NTP, para mantenerlo.** `timedatectl set-ntp true`, que el script
+activa solo.
+
+Las dos formas de lanzarlo a mano leen la hora de la cabecera `Date` de
+una peticion HTTP **sin cifrar**, que es lo unico que funciona cuando el
+reloj esta tan mal que ni el NTP llega a tiempo:
+
+- **Desde la consola**: `sudo ./poner_hora.sh`. Pone la hora por HTTP,
+  activa NTP para que la afine y la mantenga, y la escribe en el RTC si
+  hay. No necesita nada instalado: usa `curl` o `wget` si estan y, si
+  no, habla HTTP con el `/dev/tcp` de bash.
+- **Desde el 286**: `Configuracion -> Actualizar hora`. Lo mismo, pero
+  desde dentro del broker ([system.py](system.py)), para cuando el
+  cacharro esta en la mesa y no quieres abrir un SSH.
+
+Para que el broker pueda escribir el reloj **no se usa `sudo`**: el
+servicio corre con `NoNewPrivileges=true`, asi que `sudo` no podria
+escalar ni habiendo regla de sudoers. En vez de eso la unidad le da la
+unica capacidad que hace falta:
+
+```
+AmbientCapabilities=CAP_SYS_TIME
+CapabilityBoundingSet=CAP_SYS_TIME
+```
+
+Con eso `time.clock_settime()` funciona siendo un usuario normal y el
+proceso no gana nada mas. Si vienes de una version anterior de la
+unidad, vuelve a pasar `sudo ./instalar_servicio.sh` para que el cambio
+entre. Y **no metas `ProtectClock=true`** en la unidad: esa opcion
+existe justo para prohibir esto.
+
 ## Arranque automatico en la Raspberry
 
 En la Raspberry (no en el Mac), desde la carpeta del broker:
@@ -473,6 +635,6 @@ Solo puede haber un proceso con el puerto abierto: **para el servicio
 antes de ejecutar `broker_v2.py` a mano**, o el que arranque segundo
 fallara al abrir el puerto.
 
-Si algun dia cambias `PORT` en `config.py`, vuelve a pasar el script:
+Si algun dia cambias `PORT` en `api.env`, vuelve a pasar el script:
 el nombre del aparato esta escrito dentro de la unidad y no se entera
 solo.
