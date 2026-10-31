@@ -57,6 +57,18 @@ ProtectSystem=full
 ProtectHome=read-only
 ReadWritePaths=@DIR@
 
+# La opcion "Actualizar hora" del menu de Configuracion necesita poder
+# escribir el reloj del sistema. Se le da esa capacidad y SOLO esa, en
+# vez de permitirle sudo: con NoNewPrivileges=true sudo no funcionaria
+# de todas formas, y una regla de sudoers daria mucho mas de lo que
+# hace falta. Las capacidades ambientales las pone systemd antes de
+# ejecutar, asi que conviven con NoNewPrivileges sin problema.
+#
+# Y NO se pone ProtectClock=true aqui: esa opcion existe justo para
+# prohibir esto, y dejaria la opcion del menu sin funcionar.
+AmbientCapabilities=CAP_SYS_TIME
+CapabilityBoundingSet=CAP_SYS_TIME
+
 [Install]
 # Atado al aparato, no a multi-user.target: asi si arrancas la Pi con
 # el cable desenchufado no queda un servicio en estado "failed", y al

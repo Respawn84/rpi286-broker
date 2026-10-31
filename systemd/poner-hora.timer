@@ -1,0 +1,21 @@
+# Plantilla. NO se instala tal cual: la instala instalar_servicio.sh.
+
+[Unit]
+Description=Poner el reloj en hora al arrancar y cada 5 minutos
+Documentation=file://@DIR@/README.md
+
+[Timer]
+# Los dos disparos son MONOTONICOS (desde el arranque y desde la ultima
+# ejecucion), no OnCalendar, y eso es a proposito: un timer de
+# calendario con el reloj en 1970 se comporta de forma rarisima, y aqui
+# el reloj mal es precisamente la situacion de partida.
+OnBootSec=20s
+OnUnitActiveSec=5min
+# Sin esto systemd agrupa los disparos en ventanas de un minuto para
+# ahorrar despertares; aqui interesa que el de arranque sea puntual.
+AccuracySec=5s
+
+Unit=poner-hora.service
+
+[Install]
+WantedBy=timers.target
