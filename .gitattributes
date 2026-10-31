@@ -1,0 +1,8 @@
+# Los scripts y las unidades de systemd se ejecutan en la placa, y en
+# Linux un CRLF en la primera linea rompe el shebang con el clasico
+# "bad interpreter: /usr/bin/env bash^M". Aqui se guardan y se sacan
+# siempre con finales de linea Unix, sin depender de como tenga
+# configurado core.autocrlf quien los edite desde Windows.
+*.sh      text eol=lf
+*.service text eol=lf
+*.timer   text eol=lf
